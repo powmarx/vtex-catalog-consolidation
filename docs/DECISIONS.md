@@ -14,7 +14,9 @@ The variations are deliberate and countable: 60 records with doubled internal sp
 
 Profiled separately, because it changes which side of the ingest needs defending.
 
-`catalog.db` passes `integrity_check`, has no orphan rows, and its 975 products contain **zero** text anomalies: no leading or trailing spaces, no doubled spaces, no accents, and every value is ASCII. No product name repeats, and no name is shared by two products under different brands. Ids run 1 to 975 with no gaps, and `sqlite_sequence` sits at 975, so the new rows this ingest creates will be 976 to 978.
+`catalog.db` passes `integrity_check`, has no orphan rows, and its 975 products contain no whitespace or accent anomalies: no leading or trailing spaces, no doubled spaces, no accents, and every value is ASCII. No product name repeats, and no name is shared by two products under different brands. Ids run 1 to 975 with no gaps, and `sqlite_sequence` sits at 975, so the new rows this ingest creates will be 976 to 978.
+
+One exception, so "clean" is not overstated: brand **casing** is internally inconsistent. `simplehuman` and `Simplehuman` both appear, as do `Black+Decker` and `BLACK+DECKER`. Case-insensitive matching absorbs this, and `D2` forbids rewriting it, but the catalog is not authoritative on brand spelling. See `N5` in [`DATA-ISSUES.md`](DATA-ISSUES.md).
 
 Nulls are common but structured: 119 products (12%) have a null `Brand` and 34 have a null `Category`. Null-tolerance is therefore a main path, not an edge case. Across 975 products there are 639 distinct brands and 43 distinct non-null categories. Full breakdown in [`SCHEMA.md`](SCHEMA.md).
 

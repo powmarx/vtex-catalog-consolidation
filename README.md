@@ -14,6 +14,7 @@ A traditional e-commerce company is becoming a marketplace. It owns a catalog of
 data/catalog.db          SQLite catalog as supplied (975 products) - pristine, never mutated
 data/ProductEntry.json   seller submissions as supplied (269 records, 20 sellers)
 docs/SCHEMA.md           database and JSON schemas as supplied, and after migration
+docs/DATA-ISSUES.md      every defect and trap found in the two artifacts, and the response
 docs/DECISIONS.md        what was chosen and why, with the tradeoff each decision accepts
 docs/DESIGN.md           how it is built: module boundaries, migration, CLI, test strategy
 docs/TASKS.md            ordered implementation plan with per-step verification
