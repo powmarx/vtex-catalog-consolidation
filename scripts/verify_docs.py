@@ -686,12 +686,43 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     schema = docs["SCHEMA"]
     issues = docs["DATA-ISSUES"]
 
+    # Discover the ids rather than hardcoding a range, so a new decision is
+    # covered the moment it is written instead of silently escaping these checks.
     c.begin("docs/ids")
-    for i in range(1, 11):
-        c.states(f"DECISIONS defines D{i}", decisions, f"### D{i} ")
-    for i in range(1, 9):
-        c.states(f"DESIGN defines DS{i}", design, f"### DS{i} ")
+    decision_ids = sorted(int(n) for n in re.findall(r"^### D(\d+) ", decisions, re.M))
+    design_ids = sorted(int(n) for n in re.findall(r"^### DS(\d+) ", design, re.M))
+    c.check("DECISIONS defines decisions", len(decision_ids) > 0)
+    c.equals("decision ids are contiguous from D1", decision_ids, list(range(1, len(decision_ids) + 1)))
+    c.equals("design ids are contiguous from DS1", design_ids, list(range(1, len(design_ids) + 1)))
+    c.check("at least D1-D11 exist", len(decision_ids) >= 11, f"found D1-D{len(decision_ids)}")
+    c.check("at least DS1-DS9 exist", len(design_ids) >= 9, f"found DS1-DS{len(design_ids)}")
+    for i in decision_ids:
+        c.check(
+            f"D{i} is referenced outside DECISIONS",
+            f"`D{i}`" in design or f"`D{i}`" in tasks or f"`D{i}`" in issues,
+            f"D{i} is defined but never referenced",
+        )
+    for i in design_ids:
         c.states(f"TASKS references DS{i}", tasks, f"DS{i}")
+
+    # The reverse direction: nothing may cite a decision or design id that does not
+    # exist. A dangling `D99` is a silent documentation bug the forward check misses,
+    # because the real id stays referenced from somewhere else.
+    for doc_name, text in (("DECISIONS", decisions), ("DESIGN", design), ("TASKS", tasks), ("SCHEMA", schema), ("DATA-ISSUES", issues)):
+        cited_d = {int(n) for n in re.findall(r"`D(\d+)`", text)}
+        cited_ds = {int(n) for n in re.findall(r"`DS(\d+)`", text)}
+        dangling_d = sorted(cited_d - set(decision_ids))
+        dangling_ds = sorted(cited_ds - set(design_ids))
+        c.check(
+            f"{doc_name} cites no undefined decision",
+            not dangling_d,
+            f"cites D{dangling_d} which DECISIONS does not define" if dangling_d else "",
+        )
+        c.check(
+            f"{doc_name} cites no undefined design section",
+            not dangling_ds,
+            f"cites DS{dangling_ds} which DESIGN does not define" if dangling_ds else "",
+        )
 
     c.begin("docs/acceptance numbers agree")
     for value in ("269", "266", "978", "257", "12"):
@@ -752,6 +783,26 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     # DS8 exists because a pragma silently no-ops. Pin the specifics.
     c.states("DS8 states the pragma is ignored in a transaction", design, "silently ignored inside a transaction")
     c.states("DS8 prescribes isolation_level=None", design, "isolation_level=None")
+
+    # D11/DS9: the candidate rule's threshold is a measured judgement call, and the
+    # strict inequality is what keeps a known confusable family out. Pin both.
+    c.begin("docs/findings report (D11, DS9)")
+    c.states("D11 requires a report per run", decisions, "### D11 — Every run writes a findings report")
+    c.states("D11 states the threshold is strict", decisions, "strictly greater than 0.5")
+    c.states("D11 records the two candidate scores", decisions, "0.667")
+    c.states("D11 records the second candidate score", decisions, "0.600")
+    c.states("D11 records the nearest in-scope rejection", decisions, "0.143")
+    c.states("D11 names the confusable family at exactly 0.500", decisions, "score exactly 0.500")
+    c.states("D11 admits the threshold is under-determined", decisions, "does not finely determine the value")
+    c.states("D11 excludes profiling noise", decisions, "regenerating it per run produces noise")
+    c.states("DS9 explains why it is not threaded", design, "### DS9")
+    c.states("DS9 cites the measured total", design, "32.9 ms")
+    c.states("DS9 gives the GIL reason", design, "the GIL prevents real parallelism")
+    c.states("DS9 gives the connection-affinity reason", design, "have thread affinity")
+    c.states("DS9 requires writing after commit", design, "written only after `COMMIT` returns")
+    c.states("DS9 names the correct scale boundary", design, "a batch boundary")
+    c.states("TASKS sequences the report as task 9", tasks, "## 9. Findings report")
+    c.check("reports/ is gitignored", "reports/" in (ROOT / ".gitignore").read_text(encoding="utf-8"))
 
     # SCHEMA.md reproduces the DDL in two states. Both must be right, and the
     # "as supplied" one must match the live database rather than a memory of it.

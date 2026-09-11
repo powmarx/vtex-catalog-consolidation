@@ -128,6 +128,31 @@ Per `D7`, a malformed record is recorded in `Report.errors` with its index and r
 
 Deliberate consequence: a file where every record fails commits successfully with zero rows written and exit code 1. That is correct — nothing was wrong with the transaction, only with the data.
 
+### DS9 — The findings report is synchronous, scoped, and written after commit
+
+`D11` requires a findings file per run. Three design constraints, the first two measured.
+
+**It stays on the main thread.** The question of running it concurrently to avoid delaying ingestion was raised and measured:
+
+```
+load catalog + build index           11.3 ms
+migration (rebuild + two indexes)    13.6 ms
+ingest 269 records                    8.0 ms
+                        total path   32.9 ms
+review search, inserted only         12.1 ms   (2,925 comparisons)
+review search, every record          74.7 ms   (262,275 comparisons)
+```
+
+There is nothing to unblock. The whole run is ~45 ms. Threading would buy at most 12 ms while adding coordination, nondeterministic output ordering, and three specific hazards: the review search is pure-Python CPU-bound work so the GIL prevents real parallelism; `sqlite3` connections have thread affinity, so a second thread either races on one connection or opens another that cannot see the uncommitted rows inside `D8`'s transaction; and the report describes decisions that may still roll back.
+
+The saving came from scoping instead — searching only the records that were inserted is 6× cheaper than searching all of them, and `D11` shows it is also more correct.
+
+**It is built from in-memory verdicts and written only after `COMMIT` returns.** Not a performance choice. `D8` wraps the run in one transaction, so a report written during it could describe rows that never existed. `--dry-run` still produces a report, marked as such, and writes no file unless asked.
+
+**Where a scale boundary would go.** If the analysis ever became expensive, the correct split is still not a thread: persist the per-record verdicts during ingest, which is cheap and sequential, and run the analysis as a separate pass afterwards. That is a batch boundary, and it buys something threading does not — a slow or failing analysis can never delay or corrupt an ingest. Parallel CPU-bound matching in Python would mean `multiprocessing` or a vectorized approach, not `threading`.
+
+Structurally the report is derived from the same `Report` object as `DS6`, extended with per-record verdicts. `reporting.py` renders it; JSON is the source of truth and Markdown is generated from it, so the two cannot disagree. Files land in `reports/`, which is gitignored.
+
 ## Test strategy
 
 The acceptance numbers in `DECISIONS.md` are the primary test, and they are known before the code exists, so they can be written first.
@@ -146,6 +171,10 @@ The acceptance numbers in `DECISIONS.md` are the primary test, and they are know
 | `test_failure_rolls_back` | an error injected mid-run leaves the database with zero new rows in either table (`D8`) |
 | `test_malformed_record_is_reported_not_skipped` | a record that violates `NOT NULL` appears in `Report.errors` and is *not* counted as a duplicate listing (`DS3`) |
 | `test_dry_run_mutates_nothing` | file hash is identical after `--dry-run`, including when the migration has not yet been applied (`DS5`) |
+| `test_review_candidates_found` | the two translation pairs are proposed at 0.667 and 0.600, and nothing else is (`D11`) |
+| `test_candidate_rule_excludes_exact_half` | a pair scoring exactly 0.500 is rejected, so the strict inequality is load-bearing (`D11`) |
+| `test_report_written_only_after_commit` | a run that rolls back leaves no findings file (`DS9`) |
+| `test_discarded_values_recorded` | the 64 name, 1 brand and 1 category differences appear in the report (`D11`, `N3`) |
 
 Integration tests copy `data/catalog.db` to a temporary path per test. The committed baseline is never opened for writing.
 

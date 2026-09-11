@@ -103,6 +103,22 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 **Done when:** a clean clone runs the tests successfully with no steps beyond the README.
 
+## 9. Findings report (`D11`, `DS9`)
+
+Sequenced last deliberately. It builds on the `Report` object, and the acceptance test must pass before anything is layered on top.
+
+- [ ] Extend `Report` with per-record verdicts: matched, inserted, suppressed, rejected
+- [ ] `reporting.py`: `to_json(report)` as the source of truth, `to_markdown(report)` derived from it
+- [ ] Review-candidate search in `consolidator.py`, scoped to inserted records only, brand equality plus Jaccard token overlap **strictly greater than** 0.5
+- [ ] Record every field difference `D2` discarded
+- [ ] Write to `reports/<timestamp>-<input-stem>.json` and `.md`, after `COMMIT` returns
+- [ ] `--dry-run` marks the report as such and writes no file unless `--report-file` is given
+- [ ] `reports/` added to `.gitignore`
+
+**Tests:** `test_review_candidates_found`, `test_candidate_rule_excludes_exact_half`, `test_report_written_only_after_commit`, `test_discarded_values_recorded`.
+
+**Done when:** a run on the supplied file proposes exactly two candidates — `Processador`→`Processor` at 0.667 and `Roteador`→`Router` at 0.600 — proposes nothing for `Security Test Product`, and the acceptance numbers from task 8 are unchanged. The report must not alter what gets written to the database.
+
 ## Running alongside: documentation verification
 
 `scripts/verify_docs.py` already asserts every figure in these documents against the

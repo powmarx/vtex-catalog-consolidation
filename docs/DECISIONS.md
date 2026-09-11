@@ -160,6 +160,41 @@ So no schema change is made on this account. Recorded explicitly because the omi
 
 Had those fields been present, `SellerProduct` is where they would belong — it is already the offer-level table, one row per seller per product, and adding price and stock columns there would need no new relation.
 
+### D11 — Every run writes a findings report
+
+Consolidation makes decisions that are invisible afterwards. `D6` inserts two products it knows are probably duplicates; `D2` discards 66 incoming field values; `D5` suppresses 12 records. None of that is recoverable from the resulting database.
+
+Each run therefore writes a findings file to `reports/<timestamp>-<input-stem>.json`, with a Markdown rendering beside it. Four classes:
+
+- **Rejections** — records that could not be processed at all.
+- **Suppressions** — records deliberately not written, naming the constraint that caught each.
+- **Review candidates** — records inserted as new products for which a plausible existing match was found on partial evidence. See below.
+- **Discarded values** — every field difference `D2` dropped, so `Levi's` and `Photo` remain recoverable.
+
+Review candidates are the point of this decision. They let matching stay conservative while making the cost of that conservatism visible. `D6` refuses to guess that `Roteador` means `Router`, which is right — but a silent refusal teaches nobody. Reported, it becomes a queue a human can act on, without putting a false-positive-prone heuristic into the matching path where a wrong merge is unrecoverable.
+
+**Candidate rule:** the incoming record's normalized brand equals a catalog product's normalized brand, **and** Jaccard token overlap of the normalized names is strictly greater than 0.5. Searched only against records that were inserted, never against matched ones.
+
+Measured on the supplied file. Within scope, two candidates and one correct rejection:
+
+| Inserted record | Catalog product | Overlap | Proposed |
+| --- | --- | --- | --- |
+| `Processador AMD Ryzen 9 7950X` | 28 `Processor AMD Ryzen 9 7950X` | 0.667 | yes |
+| `Roteador WiFi 6 TP-Link` | 21 `Router WiFi 6 TP-Link` | 0.600 | yes |
+| `Roteador WiFi 6 TP-Link` | 202 `Smart Plug TP-Link 4-Pack` | 0.143 | no |
+
+`Security Test Product` proposes nothing, because no catalog product shares its brand. Two true positives, zero false positives.
+
+Two things the measurement settled that reasoning would not have:
+
+**The scoping is a correctness requirement, not an optimization.** Run against matched records too, the same rule produces spurious pairs: `Hockey Stick Ice` against `Hockey Skates Ice`, and `Bar Stools Set of 2` against `Nightstand Set of 2`. Genuinely different products.
+
+**The inequality is strict for a reason.** Those spurious pairs score exactly 0.500. `>= 0.5` would admit them the moment anyone widened the scope; `> 0.5` excludes them outright. The threshold is deliberately placed just above the nearest confusable family in the actual data.
+
+Honest limitation: within scope the gap between the lowest accepted candidate (0.600) and the highest rejected one (0.143) is wide, so any threshold in that range behaves identically here. This data does not finely determine the value — it only establishes that 0.5 is a safe floor. A larger corpus would be needed to tune it, and the report is the mechanism that would generate the evidence.
+
+Tradeoff: a report nobody reads is dead weight. It deliberately excludes input profiling for its own sake — counting doubled spaces, cataloguing brand casing. That analysis is in [`DATA-ISSUES.md`](DATA-ISSUES.md), it describes a known file, and regenerating it per run produces noise. The report contains only what affected this run's decisions.
+
 ## Expected outcome
 
 Measured by simulating the decisions above against the real files. The implementation is correct when it reproduces these exactly.

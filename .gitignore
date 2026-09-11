@@ -4,6 +4,9 @@ data/*.local.db
 data/*.working.db
 data/catalog.local.db
 
+# Per-run findings reports (D11). Run artifacts, not source.
+reports/
+
 # Python
 __pycache__/
 *.py[cod]
