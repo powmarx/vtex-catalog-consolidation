@@ -18,9 +18,37 @@ docs/DATA-ISSUES.md      every defect and trap found in the two artifacts, and t
 docs/DECISIONS.md        what was chosen and why, with the tradeoff each decision accepts
 docs/DESIGN.md           how it is built: module boundaries, migration, CLI, test strategy
 docs/TASKS.md            ordered implementation plan with per-step verification
+scripts/verify_docs.py   re-measures the artifacts and checks the docs still tell the truth
 src/catalog_consolidation/
 tests/
 ```
+
+## Verifying the documentation
+
+Every figure in `docs/` was produced by measuring the two artifacts. That measurement is
+reproducible rather than trusted:
+
+```
+python scripts/verify_docs.py            # 278 checks, non-zero exit on failure
+python scripts/verify_docs.py -v         # list every check
+python scripts/verify_docs.py --section sqlite
+```
+
+It re-measures both files, confirms they are byte-for-byte unmodified, executes the
+SQLite behaviours the design depends on rather than asserting them, and checks the
+documents for self-consistency — that summary tables sum, that every decision id is
+referenced, that shared numbers agree across documents, and that corrected claims have
+not crept back.
+
+A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
+
+```
+python scripts/verify_docs_selftest.py   # applies 16 mutations, each must be caught
+```
+
+That self-test earned its place. It found two checks that were passing vacuously — one
+that survived the DS3 heading being inverted to recommend the opposite SQL clause, and a
+missing check that let `SCHEMA.md` misstate the database's own DDL.
 
 Read `docs/DECISIONS.md` first. It is the reasoning trail, and `D2` (first write wins) and `D6` (two documented false negatives) are the decisions most worth challenging.
 

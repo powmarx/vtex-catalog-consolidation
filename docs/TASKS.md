@@ -103,6 +103,22 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 **Done when:** a clean clone runs the tests successfully with no steps beyond the README.
 
+## Running alongside: documentation verification
+
+`scripts/verify_docs.py` already asserts every figure in these documents against the
+artifacts, and `scripts/verify_docs_selftest.py` proves it can fail. Both should stay green
+as the implementation lands.
+
+Two points where they interact with the tasks above:
+
+- **Task 2** makes `verify_docs.py` import `catalog_consolidation.normalize` instead of its
+  fallback copy of the `D1` rule. From that point the 278 checks also act as a regression
+  test on the real match key — if the normalizer drifts, the documented counts stop
+  reproducing. The script prints which implementation it used, so the switchover is visible.
+- **Task 8** duplicates the acceptance numbers as unit tests. That is deliberate: the script
+  proves the *documented* figures are still true of the data, the tests prove the *code*
+  reproduces them. Either can fail without the other.
+
 ## Deliberately excluded
 
 Logging framework, config files, ORM, fuzzy matching (`D6` rejects it), a `Seller` table (`D9`), price and stock columns (`D10`), and any performance work. `DECISIONS.md` records why for each.

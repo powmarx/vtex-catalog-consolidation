@@ -82,7 +82,7 @@ The migration is still made, for two measured reasons that survive the correctio
 
 A seller SKU carrying leading zeros or padding is irreversibly altered. An identifier is an opaque token; a column that rewrites it is the wrong column.
 
-**Worse, coercion breaks D5.** Because `007` and `7` both collapse to `7`, two genuinely different seller listings collide on `UNIQUE(SellerName, SellerProductId)` and one is silently discarded as a duplicate. Verified: inserting `007` then `7` into a unique-indexed `INTEGER` column raises a constraint violation, while a `TEXT` column stores both. The idempotency guarantee is only sound if the column preserves what it is given.
+**Worse, coercion breaks `D5`.** Because `007` and `7` both collapse to `7`, two genuinely different seller listings collide on `UNIQUE(SellerName, SellerProductId)` and one is silently discarded as a duplicate. Verified: inserting `007` then `7` into a unique-indexed `INTEGER` column raises a constraint violation, while a `TEXT` column stores both. The idempotency guarantee is only sound if the column preserves what it is given.
 
 None of this bites on the supplied file, where every `Id` is a non-numeric UUID. The migration is a correctness guarantee for the identifiers this schema invites rather than a fix for a present failure, which is a weaker but honest justification.
 
