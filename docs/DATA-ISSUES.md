@@ -12,12 +12,18 @@ Figures cross-reference [`SCHEMA.md`](SCHEMA.md); decisions referenced as `D1`�
 
 ## Summary
 
-| | Traps | Handled | Noted |
-| --- | --- | --- | --- |
-| `ProductEntry.json` | 5 | 6 | 4 |
-| `catalog.db` | 0 | 2 | 6 |
+17 issues, attributed to where the defect actually originates.
 
-The input is where the difficulty is. The catalog is nearly clean, with two exceptions.
+| Source | Traps | Handled | Noted | Total |
+| --- | --- | --- | --- | --- |
+| `ProductEntry.json` | 3 | 4 | 3 | 10 |
+| `catalog.db` | 0 | 0 | 2 | 2 |
+| Both artifacts | 0 | 1 | 0 | 1 |
+| Cross-artifact, visible only when comparing the two | 1 | 1 | 1 | 3 |
+| Implementation, induced by the data | 1 | 0 | 0 | 1 |
+| **Total** | **5** | **6** | **6** | **17** |
+
+The input carries the difficulty. The catalog's only data-quality defect is brand casing (`N5`); its other issue is structural rather than dirty data (`N6`).
 
 ---
 
@@ -92,11 +98,13 @@ This is also the only genuinely new product in the file.
 
 **Response:** invariant 3 in `DECISIONS.md` — every statement parameterized. `D7` treats the payload as an ordinary string.
 
-### T5 — `ON CONFLICT DO NOTHING` vs `INSERT OR IGNORE`
+### T5 — `INSERT OR IGNORE` would miscount malformed records as duplicates
 
-**Severity: trap**, in the implementation rather than the data, but caused by the data. `INSERT OR IGNORE` suppresses every constraint violation, not just uniqueness. A record failing `NOT NULL` is silently discarded with `rowcount = 0`, indistinguishable from a duplicate skip — so a malformed record gets counted as a duplicate listing and never reported.
+**Severity: trap.** Not a defect in either artifact — this one is in the implementation, and it is listed here because the data is what makes it dangerous. `T2` forces duplicate suppression on insert, and the obvious way to write that is `INSERT OR IGNORE`.
 
-**Response:** `DS3` in [`DESIGN.md`](DESIGN.md). `ON CONFLICT DO NOTHING` raises on `NOT NULL` while still absorbing uniqueness conflicts.
+That would be wrong. `OR IGNORE` suppresses *every* constraint violation, not just uniqueness. A record failing `NOT NULL` is silently discarded with `rowcount = 0`, which is indistinguishable from a duplicate skip. A malformed record would be counted as a duplicate listing and never reported, quietly corrupting the report.
+
+**Response:** `DS3` in [`DESIGN.md`](DESIGN.md). `ON CONFLICT DO NOTHING` absorbs uniqueness conflicts but raises `IntegrityError` on `NOT NULL`, keeping the two cases distinguishable.
 
 ---
 
@@ -108,13 +116,14 @@ This is also the only genuinely new product in the file.
 
 ### H2 — Inconsistent punctuation for units
 
-Three spellings of the same measurement coexist:
+Two products carry the same measurement spelled different ways:
 
 | Product | Variants present |
 | --- | --- |
-| Tablet iPad Pro | `12.9"`, `12.9''`, `12.9` |
-| Smart TV Samsung | `55"`, `55` (plus a doubled-space variant) |
-| Monitor LG UltraWide | `34"` |
+| Tablet iPad Pro | `Tablet iPad Pro 12.9`, `Tablet iPad Pro 12.9"`, `Tablet iPad Pro 12.9''` |
+| Smart TV Samsung | `Smart TV Samsung 55`, `Smart TV Samsung 55"`, `Smart TV Samsung  55"` |
+
+Both use straight-quote inch marks, one doubled apostrophe, and one bare number. `Monitor LG UltraWide 34"` is *not* an instance of this — its two variants both carry the inch mark and differ only by a doubled space, so it belongs to `H1`.
 
 Response: `D1` drops non-alphanumeric characters, so all forms converge.
 
@@ -154,9 +163,21 @@ No action: `Id` is an opaque token, only ever stored and compared for equality. 
 
 One case: `Photo` versus `Photography` for Camera Canon EOS R6. `Photo` is the only one of the input's 28 category values absent from the catalog's 43. Excluded from the match key deliberately — including `Category` would split a genuine duplicate. Per `D1`.
 
-### N3 — Category data discarded on match
+### N3 — Incoming field values discarded on match
 
-1 record's category disagrees with the catalog, and it is not written. Also `Photo` never enters the catalog as a value. This is `D2` working as specified, recorded so the loss is visible.
+`D2` never updates an existing `Product` row, so every difference between a matched record and the catalog row is dropped. The full extent, across the 266 matched records:
+
+| Field | Records whose value differs from the catalog | Example |
+| --- | --- | --- |
+| `Name` | 64 | `Smartphone  Galaxy S23` vs `Smartphone Galaxy S23` |
+| `Brand` | 1 | `Levi's` vs `Levis` |
+| `Category` | 1 | `Photo` vs `Photography` |
+
+The 64 name differences are all whitespace, punctuation, or accent variants of what the catalog already holds, so discarding them loses nothing. The brand and category cases are more arguable — `Levi's` is defensibly better data than `Levis`, and a most-complete-wins policy would have taken it.
+
+Also worth stating: `Photo` never enters the catalog as a category value, so the input's 28th category is silently dropped.
+
+This is `D2` working exactly as specified. Recorded so the loss is visible rather than implicit, since it is the decision a reviewer is most likely to challenge.
 
 ### N4 — File has no trailing newline
 
