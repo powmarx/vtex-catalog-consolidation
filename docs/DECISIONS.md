@@ -16,7 +16,7 @@ Profiled separately, because it changes which side of the ingest needs defending
 
 `catalog.db` passes `integrity_check`, has no orphan rows, and its 975 products contain **zero** text anomalies: no leading or trailing spaces, no doubled spaces, no accents, and every value is ASCII. No product name repeats, and no name is shared by two products under different brands. Ids run 1 to 975 with no gaps, and `sqlite_sequence` sits at 975, so the new rows this ingest creates will be 976 to 978.
 
-Nulls are common but structured: 119 products (12%) have a null `Brand` and 34 have a null `Category`. Null-tolerance is therefore a main path, not an edge case. Across 975 products there are 639 distinct brands and 44 categories.
+Nulls are common but structured: 119 products (12%) have a null `Brand` and 34 have a null `Category`. Null-tolerance is therefore a main path, not an edge case. Across 975 products there are 639 distinct brands and 43 distinct non-null categories. Full breakdown in [`SCHEMA.md`](SCHEMA.md).
 
 Two consequences. Normalization exists purely to absorb *incoming* variation, since the reference side has none. And the catalog is a trustworthy reference, which is the strongest argument for D2.
 
@@ -124,7 +124,9 @@ What a production system would do instead: resolve on a real product identifier 
 
 ### D7 — Malformed and hostile input is processed as data, never as code
 
-One record has brand `TestBrand'; SELECT 1; --` and a malformed UUID (`09835342345-4678-9abc-def012345678`). It is treated as an ordinary record: parameterized queries mean the payload is stored as a literal string and the malformed identifier is accepted, since `Id` is opaque and only ever compared for equality.
+One record has brand `TestBrand'; SELECT 1; --`. It is treated as an ordinary record: parameterized queries mean the payload is stored as a literal string, never parsed.
+
+That same record also carries a malformed identifier, and it is not the only one — **three** of the 269 ids fail a UUID shape check: a group with 7 hex digits instead of 8, one with 4 groups instead of 5, and one containing the non-hex character `u`. All three are accepted. `Id` is an opaque token that is only ever compared for equality and stored, so validating its shape would reject data the system has no business rejecting. Enumerated in [`SCHEMA.md`](SCHEMA.md).
 
 Null brands (3 records) normalize to an empty string and participate in matching normally.
 
