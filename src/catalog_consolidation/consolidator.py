@@ -37,7 +37,7 @@ from .models import (
     Verdict,
 )
 from .normalize import match_key, normalize, token_overlap
-from .repository import CatalogRepository
+from .repository import CatalogRepository, RepositoryIntegrityError
 
 __all__ = ["consolidate", "CANDIDATE_OVERLAP_THRESHOLD", "find_review_candidates"]
 
@@ -77,57 +77,28 @@ def consolidate(
     created_here: set[int] = set()
 
     for entry in entries:
-        key = match_key(entry.name, entry.brand)
-        existing_id = index.get(key)
-
-        if existing_id is not None:
-            product_id = existing_id
-            verdict = Verdict.MATCHED
-            # Only compare against a row that predates the run. A product created a
-            # moment ago holds this record's own values, so there is nothing discarded.
-            if product_id not in created_here:
-                _record_discarded(report, entry, repository.fetch_product(product_id))
-        else:
-            product_id = repository.insert_product(entry.name, entry.brand, entry.category)
-            # DS1: without this the next record for the same new product inserts again.
-            index[key] = product_id
-            created_here.add(product_id)
-            verdict = Verdict.INSERTED
-            inserted_products.append((entry, product_id))
-
-        written = repository.link(entry.seller_name, product_id, entry.entry_id)
-
-        if written:
-            report.links_created += 1
-            if verdict is Verdict.MATCHED:
-                report.matched += 1
-            else:
-                report.inserted += 1
-            report.outcomes.append(
-                RecordOutcome(
+        try:
+            _process(entry, repository, index, created_here, inserted_products, report)
+        except RepositoryIntegrityError as exc:
+            # D7/DS3: a constraint refused this record. Report it and carry on -- a
+            # SQLite constraint failure does not invalidate the transaction, so the
+            # other records are unaffected. This is the case `INSERT OR IGNORE` would
+            # have swallowed as a duplicate.
+            report.errors.append(
+                RecordError(
                     source_index=entry.source_index,
+                    reason=str(exc),
                     seller_name=entry.seller_name,
                     entry_id=entry.entry_id,
-                    verdict=verdict,
-                    product_id=product_id,
-                    detail=_match_detail(verdict, product_id, created_here),
                 )
             )
-        else:
-            # The product side already happened and stands; only the link was refused.
-            if verdict is Verdict.MATCHED:
-                report.matched += 1
-            else:
-                report.inserted += 1
-            report.suppressed += 1
             report.outcomes.append(
                 RecordOutcome(
                     source_index=entry.source_index,
                     seller_name=entry.seller_name,
                     entry_id=entry.entry_id,
-                    verdict=Verdict.SUPPRESSED,
-                    product_id=product_id,
-                    detail=_suppression_reason(report, entry, product_id),
+                    verdict=Verdict.REJECTED,
+                    detail=str(exc),
                 )
             )
 
@@ -136,6 +107,65 @@ def consolidate(
 
     report.products_after = repository.product_count()
     return report
+
+
+def _process(
+    entry: SellerEntry,
+    repository: CatalogRepository,
+    index: dict[MatchKey, int],
+    created_here: set[int],
+    inserted_products: list[tuple[SellerEntry, int]],
+    report: Report,
+) -> None:
+    """Resolve and link one record. Raises `RepositoryIntegrityError` on a refusal."""
+    key = match_key(entry.name, entry.brand)
+    existing_id = index.get(key)
+
+    if existing_id is not None:
+        product_id = existing_id
+        verdict = Verdict.MATCHED
+        # Only compare against a row that predates the run. A product created a moment
+        # ago holds this record's own values, so there is nothing discarded.
+        if product_id not in created_here:
+            _record_discarded(report, entry, repository.fetch_product(product_id))
+    else:
+        product_id = repository.insert_product(entry.name, entry.brand, entry.category)
+        # DS1: without this the next record for the same new product inserts again.
+        index[key] = product_id
+        created_here.add(product_id)
+        verdict = Verdict.INSERTED
+        inserted_products.append((entry, product_id))
+
+    if verdict is Verdict.MATCHED:
+        report.matched += 1
+    else:
+        report.inserted += 1
+
+    if repository.link(entry.seller_name, product_id, entry.entry_id):
+        report.links_created += 1
+        report.outcomes.append(
+            RecordOutcome(
+                source_index=entry.source_index,
+                seller_name=entry.seller_name,
+                entry_id=entry.entry_id,
+                verdict=verdict,
+                product_id=product_id,
+                detail=_match_detail(verdict, product_id, created_here),
+            )
+        )
+    else:
+        # The product side already happened and stands; only the link was refused.
+        report.suppressed += 1
+        report.outcomes.append(
+            RecordOutcome(
+                source_index=entry.source_index,
+                seller_name=entry.seller_name,
+                entry_id=entry.entry_id,
+                verdict=Verdict.SUPPRESSED,
+                product_id=product_id,
+                detail=_suppression_reason(report, entry, product_id),
+            )
+        )
 
 
 def _match_detail(verdict: Verdict, product_id: int, created_here: set[int]) -> str:

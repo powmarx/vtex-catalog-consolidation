@@ -41,11 +41,32 @@ from typing import Protocol
 from .models import MatchKey, Product
 from .normalize import match_key
 
-__all__ = ["CatalogRepository", "SqliteCatalogRepository", "RepositoryError", "connect", "open_catalog"]
+__all__ = [
+    "CatalogRepository",
+    "SqliteCatalogRepository",
+    "RepositoryError",
+    "RepositoryIntegrityError",
+    "connect",
+    "open_catalog",
+]
 
 
 class RepositoryError(Exception):
-    """The database could not be opened, or is not in a state we can work with."""
+    """The database could not be opened, or is not in a state we can work with.
+
+    `sqlite3` exceptions are translated into this so that no module above the
+    repository has to import `sqlite3`. The original is kept as `__cause__`.
+    """
+
+
+class RepositoryIntegrityError(RepositoryError):
+    """A constraint refused a write.
+
+    Separate from `RepositoryError` because it is usually a problem with one record
+    rather than with the database, so the consolidator can report it and carry on
+    instead of losing the whole batch (D7). A SQLite constraint failure does not
+    invalidate the surrounding transaction, so continuing is safe.
+    """
 
 
 class CatalogRepository(Protocol):
@@ -184,10 +205,13 @@ class SqliteCatalogRepository:
     # -- writes ------------------------------------------------------------------
 
     def insert_product(self, name: str, brand: str | None, category: str | None) -> int:
-        cursor = self._connection.execute(
-            "INSERT INTO Product (Name, Brand, Category) VALUES (?, ?, ?)",
-            (name, brand, category),
-        )
+        try:
+            cursor = self._connection.execute(
+                "INSERT INTO Product (Name, Brand, Category) VALUES (?, ?, ?)",
+                (name, brand, category),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise RepositoryIntegrityError(f"cannot insert product {name!r}: {exc}") from exc
         new_id = cursor.lastrowid
         if new_id is None:  # pragma: no cover - sqlite always supplies this for a rowid table
             raise RepositoryError("insert did not yield a product id")
@@ -198,11 +222,22 @@ class SqliteCatalogRepository:
 
         Returns True if a row was written, False if a unique index suppressed it as a
         duplicate. `ON CONFLICT DO NOTHING` rather than `INSERT OR IGNORE`, so a
-        NOT NULL violation still raises and can be reported (DS3).
+        NOT NULL violation raises instead of being miscounted as a duplicate (DS3).
+
+        Note on `AUTOINCREMENT`: a suppressed insert still consumes a rowid, so
+        `sqlite_sequence` advances even when no row is written. Re-ingesting a file
+        inflates that counter without changing the data. Harmless at any realistic
+        scale, but it is why idempotency is asserted on row content rather than on the
+        file's bytes.
         """
-        cursor = self._connection.execute(
-            "INSERT INTO SellerProduct (SellerName, ProductId, SellerProductId) "
-            "VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-            (seller_name, product_id, seller_product_id),
-        )
+        try:
+            cursor = self._connection.execute(
+                "INSERT INTO SellerProduct (SellerName, ProductId, SellerProductId) "
+                "VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                (seller_name, product_id, seller_product_id),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise RepositoryIntegrityError(
+                f"cannot link seller {seller_name!r} to product {product_id}: {exc}"
+            ) from exc
         return cursor.rowcount == 1

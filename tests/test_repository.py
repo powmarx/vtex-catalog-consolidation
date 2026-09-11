@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import shutil
 import sqlite3
 import tempfile
@@ -13,6 +14,7 @@ from catalog_consolidation.models import Product
 from catalog_consolidation.normalize import match_key
 from catalog_consolidation.repository import (
     RepositoryError,
+    RepositoryIntegrityError,
     SqliteCatalogRepository,
     connect,
     open_catalog,
@@ -198,14 +200,21 @@ class TestWrites(RepositoryTestCase):
     def test_link_raises_rather_than_swallowing_a_not_null_violation(self):
         # DS3. If this ever returns False instead, a malformed record is being
         # miscounted as a duplicate.
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(RepositoryIntegrityError) as ctx:
             with self.repo.transaction():
                 self.repo.link(None, 21, "x")  # type: ignore[arg-type]
+        self.assertIn("NOT NULL", str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, sqlite3.IntegrityError)
 
     def test_link_raises_on_a_missing_product(self):
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(RepositoryIntegrityError) as ctx:
             with self.repo.transaction():
                 self.repo.link("MegaStore", 999_999, "x")
+        self.assertIn("FOREIGN KEY", str(ctx.exception))
+
+    def test_integrity_errors_are_a_subclass_of_repository_error(self):
+        # So a caller that only knows about RepositoryError still behaves correctly.
+        self.assertTrue(issubclass(RepositoryIntegrityError, RepositoryError))
 
 
 class TestTransactionControl(RepositoryTestCase):
@@ -248,13 +257,23 @@ class TestOnlyThisModuleTouchesSqlite(unittest.TestCase):
 
     def test_no_other_module_imports_sqlite3(self):
         package = ROOT / "src" / "catalog_consolidation"
+        allowed = {"repository.py", "migration.py"}
         offenders = []
         for path in sorted(package.glob("*.py")):
-            if path.name in {"repository.py", "migration.py"}:
-                continue  # migration.py takes a connection and type-hints it
-            if "sqlite3" in path.read_text(encoding="utf-8"):
-                offenders.append(path.name)
-        self.assertEqual(offenders, [], "only repository.py and migration.py may reference sqlite3")
+            if path.name in allowed:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import) and any(a.name == "sqlite3" for a in node.names):
+                    offenders.append(path.name)
+                elif isinstance(node, ast.ImportFrom) and node.module == "sqlite3":
+                    offenders.append(path.name)
+        self.assertEqual(
+            sorted(set(offenders)),
+            [],
+            "only repository.py and migration.py may import sqlite3; the repository "
+            "translates SQLite failures into RepositoryError so callers need not know",
+        )
 
 
 if __name__ == "__main__":

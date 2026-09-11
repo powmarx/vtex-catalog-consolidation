@@ -16,6 +16,7 @@ from catalog_consolidation.consolidator import (
 )
 from catalog_consolidation.models import MatchKey, Product, RecordError, SellerEntry, Verdict
 from catalog_consolidation.normalize import match_key
+from catalog_consolidation.repository import RepositoryIntegrityError
 
 
 class FakeRepository:
@@ -405,6 +406,37 @@ class TestReportShape(unittest.TestCase):
             [o.verdict for o in report.outcomes],
             [Verdict.MATCHED, Verdict.INSERTED],
         )
+
+    def test_a_record_refused_by_a_constraint_is_reported_and_the_rest_continue(self):
+        """D7/DS3 made operative: a constraint refusal costs one record, not the batch.
+
+        This is the case `INSERT OR IGNORE` would have silently counted as a duplicate.
+        """
+
+        class RefusingRepository(FakeRepository):
+            def link(self, seller_name, product_id, seller_product_id):
+                if seller_product_id == "poison":
+                    raise RepositoryIntegrityError("NOT NULL constraint failed: contrived")
+                return super().link(seller_name, product_id, seller_product_id)
+
+        repo = RefusingRepository(CATALOG)
+        report = consolidate(
+            [
+                entry(0, "A", "Smartphone Galaxy S23", "Samsung"),
+                entry(1, "B", "Smartphone Galaxy S23", "Samsung", entry_id="poison"),
+                entry(2, "C", "Smartphone Galaxy S23", "Samsung"),
+            ],
+            repo,
+        )
+        self.assertEqual(report.links_created, 2, "the other two records still landed")
+        self.assertEqual(report.failed, 1)
+        self.assertEqual(report.exit_code(), 1)
+        self.assertEqual(report.errors[0].source_index, 1)
+        self.assertIn("NOT NULL", report.errors[0].reason)
+        rejected = [o for o in report.outcomes if o.verdict is Verdict.REJECTED]
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0].source_index, 1)
+        self.assertEqual(report.suppressed, 0, "a refusal is not a suppression")
 
     def test_an_empty_run_is_valid(self):
         repo = FakeRepository(CATALOG)
