@@ -1,43 +1,47 @@
 # Tasks
 
-Ordered implementation plan. Each task names what proves it done. Semantics come from [`DECISIONS.md`](DECISIONS.md) (`D1`–`D10`), structure from [`DESIGN.md`](DESIGN.md) (`DS1`–`DS7`).
+**Status: complete.** All nine tasks are done, 185 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
+
+Two things landed differently from this plan. `reporting.py` arrived with task 7 rather than task 9, because the CLI needed rendering either way. And task 5 grew an error-translation layer that was not planned: a boundary test caught `cli.py` importing `sqlite3`, and fixing it properly rather than widening the allowlist closed a real gap — `DS3` justified `ON CONFLICT DO NOTHING` on the grounds that a `NOT NULL` violation stays reportable, but nothing was catching it, so it would have rolled back the whole run.
+
+Ordered implementation plan. Each task names what proves it done. Semantics come from [`DECISIONS.md`](DECISIONS.md) (`D1`–`D11`), structure from [`DESIGN.md`](DESIGN.md) (`DS1`–`DS9`).
 
 Order is chosen so that every step is verifiable on its own, and so the two hardest things — the match key and the migration — are settled before anything depends on them.
 
 ## 1. Package skeleton and models
 
-- [ ] `src/catalog_consolidation/` with `__init__.py`, `__main__.py`
-- [ ] `models.py`: `SellerEntry`, `Product`, `Report`, `RecordError` as frozen dataclasses
-- [ ] `pyproject.toml` declaring the package, no runtime dependencies
-- [ ] Python floor set to 3.10, the earliest version supporting the `X | Y` type syntax used in signatures. Nothing in the design needs anything newer; developed against 3.13
+- [x] `src/catalog_consolidation/` with `__init__.py`, `__main__.py`
+- [x] `models.py`: `SellerEntry`, `Product`, `Report`, `RecordError` as frozen dataclasses
+- [x] `pyproject.toml` declaring the package, no runtime dependencies
+- [x] Python floor set to 3.10, the earliest version supporting the `X | Y` type syntax used in signatures. Nothing in the design needs anything newer; developed against 3.13
 
 **Done when:** `python -c "import catalog_consolidation"` succeeds and `python -m unittest discover tests` runs with zero tests collected and no import errors.
 
 ## 2. The match key (`D1`)
 
-- [ ] `normalize.py`: `normalize(value: str | None) -> str` and `match_key(name, brand) -> tuple[str, str]`
-- [ ] NFKD accent stripping, lowercase, drop non-alphanumeric-non-space characters **without substituting a space**, collapse whitespace
-- [ ] `None` maps to `""` and is a value, not a wildcard
+- [x] `normalize.py`: `normalize(value: str | None) -> str` and `match_key(name, brand) -> tuple[str, str]`
+- [x] NFKD accent stripping, lowercase, drop non-alphanumeric-non-space characters **without substituting a space**, collapse whitespace
+- [x] `None` maps to `""` and is a value, not a wildcard
 
 **Tests:** `test_normalize` table-driven over the real variations — `Smartphone  Galaxy S23`/`Smartphone Galaxy S23`, `Câmera`/`Camera`, `Levi's`/`Levis`, `Monitor LG UltraWide 34"`/`...34`, `Tablet iPad Pro 12.9"`/`12.9''`, `None` brand. Plus `test_normalize_is_lossless`: 975 distinct keys over the supplied catalog.
 
 **Done when:** both tests pass. This is the highest-risk logic in the project, and it is pure, so it needs no database.
 
-## 3. Input loading (`D7`)
+## 3. Input loading (`D7`, `DS7`)
 
-- [ ] `source.py`: `load_entries(path) -> tuple[list[SellerEntry], list[RecordError]]`
-- [ ] Missing or blank `Name` or `SellerName` becomes a `RecordError` carrying the record index; the record is dropped and loading continues
-- [ ] `Id` is opaque — no UUID validation, so the malformed `09835342345-4678-9abc-def012345678` loads normally
+- [x] `source.py`: `load_entries(path) -> tuple[list[SellerEntry], list[RecordError]]`
+- [x] Missing or blank `Name` or `SellerName` becomes a `RecordError` carrying the record index; the record is dropped and loading continues
+- [x] `Id` is opaque — no UUID validation, so the malformed `09835342345-4678-9abc-def012345678` loads normally
 
 **Done when:** the supplied file yields 269 entries and 0 errors, and a fixture with a missing `Name` yields an error rather than an exception.
 
 ## 4. Migration (`D3`, `D5`, `DS2`)
 
-- [ ] `migration.py`: `apply(connection) -> bool`, returning whether it changed anything
-- [ ] Guard on `PRAGMA user_version`; set to 1 on success
-- [ ] Rebuild `SellerProduct` with `SellerProductId TEXT NOT NULL`, copying existing rows
-- [ ] `CREATE UNIQUE INDEX` for `(SellerName, SellerProductId)` and `(SellerName, ProductId)`
-- [ ] Whole migration in one transaction
+- [x] `migration.py`: `apply(connection) -> bool`, returning whether it changed anything
+- [x] Guard on `PRAGMA user_version`; set to 1 on success
+- [x] Rebuild `SellerProduct` with `SellerProductId TEXT NOT NULL`, copying existing rows
+- [x] `CREATE UNIQUE INDEX` for `(SellerName, SellerProductId)` and `(SellerName, ProductId)`
+- [x] Whole migration in one transaction
 
 **Tests:** `test_migration_idempotent` — apply twice, second is a no-op, `user_version` is 1, declared type is `TEXT`, both indexes exist, and rows in a pre-populated table survive the rebuild.
 
@@ -45,26 +49,26 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 ## 5. Repository (`D8`, `DS1`, `DS3`)
 
-- [ ] `repository.py`, the only module importing `sqlite3`
-- [ ] Connect with `isolation_level=None` and issue `PRAGMA foreign_keys = ON` as the **first** statement, then assert it reads back as 1 (`DS8` — the pragma is silently ignored inside a transaction)
-- [ ] Explicit `BEGIN` / `COMMIT` / `ROLLBACK`; no reliance on implicit transactions
-- [ ] `load_index() -> dict[tuple[str, str], int]` from one `SELECT`
-- [ ] `insert_product(name, brand, category) -> int`
-- [ ] `link(...) -> bool` via `INSERT ... ON CONFLICT DO NOTHING`, returning whether a row was written. **Not `INSERT OR IGNORE`** (`DS3`)
-- [ ] Every statement parameterized; no f-strings or concatenation in SQL
+- [x] `repository.py`, the only module importing `sqlite3`
+- [x] Connect with `isolation_level=None` and issue `PRAGMA foreign_keys = ON` as the **first** statement, then assert it reads back as 1 (`DS8` — the pragma is silently ignored inside a transaction)
+- [x] Explicit `BEGIN` / `COMMIT` / `ROLLBACK`; no reliance on implicit transactions
+- [x] `load_index() -> dict[tuple[str, str], int]` from one `SELECT`
+- [x] `insert_product(name, brand, category) -> int`
+- [x] `link(...) -> bool` via `INSERT ... ON CONFLICT DO NOTHING`, returning whether a row was written. **Not `INSERT OR IGNORE`** (`DS3`)
+- [x] Every statement parameterized; no f-strings or concatenation in SQL
 
 **Tests:** `link` returns `True` then `False` for the same pair; `insert_product` round-trips a brand containing `'; SELECT 1; --` unchanged; `test_malformed_record_is_reported_not_skipped` proves a `NOT NULL` violation raises rather than counting as a duplicate.
 
 **Done when:** those pass and `pragma foreign_keys` reads 1 on a live connection.
 
-## 6. Consolidator (`D1`, `D2`, `D4`, `D5`, `DS1`, `DS6`)
+## 6. Consolidator (`D1`, `D2`, `D4`, `D5`, `DS1`, `DS6`, `DS7`)
 
-- [ ] `consolidate(entries, repository) -> Report`
-- [ ] Resolve each entry against the in-memory index; on miss insert and **add the new key to the index** (`DS1`)
-- [ ] Never update an existing `Product` row (`D2`)
-- [ ] Link keyed on `(SellerName, Id)` (`D4`)
-- [ ] Count records read, matched, inserted, linked, skipped, failed
-- [ ] Returns a `Report`; prints nothing
+- [x] `consolidate(entries, repository) -> Report`
+- [x] Resolve each entry against the in-memory index; on miss insert and **add the new key to the index** (`DS1`)
+- [x] Never update an existing `Product` row (`D2`)
+- [x] Link keyed on `(SellerName, Id)` (`D4`)
+- [x] Count records read, matched, inserted, linked, skipped, failed
+- [x] Returns a `Report`; prints nothing
 
 **Tests:** `test_new_product_deduped_within_run` and `test_id_not_unique_across_sellers`, both against a fake repository with no database involved.
 
@@ -72,10 +76,10 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 ## 7. CLI (`DS4`, `DS5`)
 
-- [ ] `cli.py` with required `--database` and `--input`, optional `--dry-run` and `--report {text,json}`
-- [ ] `--dry-run` rolls the transaction back
-- [ ] Exit 0 clean, 1 if any record failed, 2 on usage or I/O error
-- [ ] Migration applied automatically before consolidating
+- [x] `cli.py` with required `--database` and `--input`, optional `--dry-run` and `--report {text,json}`
+- [x] `--dry-run` rolls the transaction back
+- [x] Exit 0 clean, 1 if any record failed, 2 on usage or I/O error
+- [x] Migration applied automatically before consolidating
 
 **Tests:** `test_dry_run_mutates_nothing` — the database file hash is unchanged after a dry run.
 
@@ -83,23 +87,23 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 ## 8. Acceptance (`DECISIONS.md` expected outcome)
 
-- [ ] `test_consolidate_acceptance`: copy the supplied catalog to a temp path, run, assert **269** read, **266** matched, **3** inserted, **978** products, **257** links, **12** skipped, **0** failed, **20** distinct sellers
-- [ ] Assert the 3 inserted products are exactly `Roteador WiFi 6 TP-Link`, `Processador AMD Ryzen 9 7950X`, `Security Test Product`
-- [ ] `test_idempotent_second_run`: run twice, second adds nothing
-- [ ] `test_injection_record_stored_literally`
-- [ ] `test_existing_products_untouched`: all 975 pre-existing rows byte-identical afterwards (`D2`)
-- [ ] `test_failure_rolls_back`: an injected mid-run error leaves both tables unchanged (`D8`)
-- [ ] `test_dry_run_mutates_nothing`: file hash unchanged, migration included in the rollback (`DS5`)
-- [ ] Confirm the committed `data/catalog.db` hash is unchanged after the whole suite runs
+- [x] `test_consolidate_acceptance`: copy the supplied catalog to a temp path, run, assert **269** read, **266** matched, **3** inserted, **978** products, **257** links, **12** skipped, **0** failed, **20** distinct sellers
+- [x] Assert the 3 inserted products are exactly `Roteador WiFi 6 TP-Link`, `Processador AMD Ryzen 9 7950X`, `Security Test Product`
+- [x] `test_idempotent_second_run`: run twice, second adds nothing
+- [x] `test_injection_record_stored_literally`
+- [x] `test_existing_products_untouched`: all 975 pre-existing rows byte-identical afterwards (`D2`)
+- [x] `test_failure_rolls_back`: an injected mid-run error leaves both tables unchanged (`D8`)
+- [x] `test_dry_run_mutates_nothing`: file hash unchanged, migration included in the rollback (`DS5`)
+- [x] Confirm the committed `data/catalog.db` hash is unchanged after the whole suite runs
 
 **Done when:** every number matches with no adjustment to the expected values. If a number differs, the implementation is wrong or a decision needs revisiting — the table is not to be edited to fit the code.
 
 ## 9. Documentation and submission
 
-- [ ] README: real usage, the acceptance table, how to run tests
-- [ ] Confirm README conventions match the code as written
-- [ ] Note in the README that `docs/DECISIONS.md` is the reasoning trail, since `D2` and `D6` are the decisions a reviewer is most likely to question
-- [ ] Push, verify the repo is public and clean, send the link
+- [x] README: real usage, the acceptance table, how to run tests
+- [x] Confirm README conventions match the code as written
+- [x] Note in the README that `docs/DECISIONS.md` is the reasoning trail, since `D2` and `D6` are the decisions a reviewer is most likely to question
+- [x] Push, verify the repo is public and clean, send the link
 
 **Done when:** a clean clone runs the tests successfully with no steps beyond the README.
 
@@ -107,13 +111,13 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 Sequenced last deliberately. It builds on the `Report` object, and the acceptance test must pass before anything is layered on top.
 
-- [ ] Extend `Report` with per-record verdicts: matched, inserted, suppressed, rejected
-- [ ] `reporting.py`: `to_json(report)` as the source of truth, `to_markdown(report)` derived from it
-- [ ] Review-candidate search in `consolidator.py`, scoped to inserted records only, brand equality plus Jaccard token overlap **strictly greater than** 0.5
-- [ ] Record every field difference `D2` discarded
-- [ ] Write to `reports/<timestamp>-<input-stem>.json` and `.md`, after `COMMIT` returns
-- [ ] `--dry-run` marks the report as such and writes no file unless `--report-file` is given
-- [ ] `reports/` added to `.gitignore`
+- [x] Extend `Report` with per-record verdicts: matched, inserted, suppressed, rejected
+- [x] `reporting.py`: `to_json(report)` as the source of truth, `to_markdown(report)` derived from it
+- [x] Review-candidate search in `consolidator.py`, scoped to inserted records only, brand equality plus Jaccard token overlap **strictly greater than** 0.5
+- [x] Record every field difference `D2` discarded
+- [x] Write to `reports/<timestamp>-<input-stem>.json` and `.md`, after `COMMIT` returns
+- [x] `--dry-run` marks the report as such and writes no file unless `--report-file` is given
+- [x] `reports/` added to `.gitignore`
 
 **Tests:** `test_review_candidates_found`, `test_candidate_rule_excludes_exact_half`, `test_report_written_only_after_commit`, `test_discarded_values_recorded`.
 

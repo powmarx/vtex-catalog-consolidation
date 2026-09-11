@@ -2,7 +2,65 @@
 
 Catalog consolidation for a marketplace: ingest a file of products submitted by many sellers into an existing product catalog, without duplicating products, while recording which sellers offer each product.
 
-**Status: design settled, implementation not started.** The decisions governing the implementation are in [`docs/DECISIONS.md`](docs/DECISIONS.md), and they were made from measurements against the supplied data rather than from assumption. Usage instructions will land with the code.
+The decisions governing behaviour are in [`docs/DECISIONS.md`](docs/DECISIONS.md), and each was made from a measurement against the supplied data rather than from assumption.
+
+## Running it
+
+Python 3.10 or newer. No dependencies.
+
+The catalog is mutated in place, and `data/catalog.db` is the pristine artifact as supplied, so work on a copy:
+
+```
+copy data\catalog.db data\catalog.local.db
+python -m catalog_consolidation --database data/catalog.local.db --input data/ProductEntry.json
+```
+
+`--database` is deliberately required with no default, so no invocation can mutate the baseline by forgetting an argument.
+
+```
+records read                  269
+matched existing product      266
+products inserted               3
+links created                 257
+duplicate listings skipped     12
+records failed                  0
+sellers linked                 20
+catalog products              975 -> 978
+
+2 review candidate(s): inserted as new, but a close match exists
+  record 64: 'Processador AMD Ryzen 9 7950X' ~ product 28 'Processor AMD Ryzen 9 7950X' (overlap 0.667)
+  record 57: 'Roteador WiFi 6 TP-Link' ~ product 21 'Router WiFi 6 TP-Link' (overlap 0.600)
+
+findings: reports\20260912T004501Z-ProductEntry.json
+          reports\20260912T004501Z-ProductEntry.md
+```
+
+Options:
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | run everything in one transaction and roll it back; the file is left byte-identical |
+| `--report {text,json}` | `json` prints the full machine-readable report to stdout |
+| `--reports-dir DIR` | where findings files go (default `reports/`, gitignored) |
+| `--no-report-file` | print the summary but write no files |
+| `--no-candidates` | skip the review-candidate search |
+
+Exit codes: `0` success, `1` the run finished but at least one record could not be processed, `2` the run could not start or finish. Suppressing duplicate listings is success — it is the specified behaviour.
+
+Running the same file twice is safe: the second run adds nothing.
+
+### Tests
+
+```
+set PYTHONPATH=src
+python -m unittest discover -s tests
+```
+
+185 tests. The acceptance tests in `tests/test_acceptance.py` assert the expected-outcome table from `docs/DECISIONS.md`, which was measured before any code existed — so it is a contract, not a description of what the code happens to do.
+
+## Review candidates
+
+Matching is deliberately lexical and conservative, so it cannot tell that `Roteador` and `Router` are the same word in two languages. Those two products are therefore inserted as new, which is a documented false negative rather than a hidden one: every run reports the near-misses it declined to merge, with the evidence, so a human can act on them. A wrong automatic merge is unrecoverable; a reported near-miss costs only attention.
 
 ## The problem in one paragraph
 
