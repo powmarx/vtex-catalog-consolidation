@@ -1,0 +1,29 @@
+# Working copies of the catalog. data/catalog.db is the pristine artifact as
+# supplied and must stay unmodified; ingestion always runs against a copy.
+data/*.local.db
+data/*.working.db
+data/catalog.local.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

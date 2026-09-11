@@ -1,0 +1,7 @@
+# Repo sources use LF.
+* text=auto eol=lf
+
+# Supplied assessment artifacts must stay byte-identical to what VTEX published.
+# No line-ending conversion, no diffing as text.
+data/catalog.db binary
+data/ProductEntry.json -text -diff
