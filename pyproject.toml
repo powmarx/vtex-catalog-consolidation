@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "catalog-consolidation"
+version = "0.1.0"
+description = "Consolidates product submissions from multiple sellers into a marketplace catalog without duplicating products."
+readme = "README.md"
+# 3.10 is the floor because signatures use the `X | Y` union syntax. Nothing in the
+# design needs anything newer. Developed and tested against 3.13.
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+catalog-consolidation = "catalog_consolidation.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
