@@ -8,7 +8,8 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 
 - [ ] `src/catalog_consolidation/` with `__init__.py`, `__main__.py`
 - [ ] `models.py`: `SellerEntry`, `Product`, `Report`, `RecordError` as frozen dataclasses
-- [ ] `pyproject.toml` declaring the package, requiring Python 3.11+, no runtime dependencies
+- [ ] `pyproject.toml` declaring the package, no runtime dependencies
+- [ ] Python floor set to 3.10, the earliest version supporting the `X | Y` type syntax used in signatures. Nothing in the design needs anything newer; developed against 3.13
 
 **Done when:** `python -c "import catalog_consolidation"` succeeds and `python -m unittest discover tests` runs with zero tests collected and no import errors.
 
@@ -45,13 +46,16 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 ## 5. Repository (`D8`, `DS1`, `DS3`)
 
 - [ ] `repository.py`, the only module importing `sqlite3`
-- [ ] `PRAGMA foreign_keys = ON` on connect (SQLite ignores the declared FK otherwise)
+- [ ] Connect with `isolation_level=None` and issue `PRAGMA foreign_keys = ON` as the **first** statement, then assert it reads back as 1 (`DS8` — the pragma is silently ignored inside a transaction)
+- [ ] Explicit `BEGIN` / `COMMIT` / `ROLLBACK`; no reliance on implicit transactions
 - [ ] `load_index() -> dict[tuple[str, str], int]` from one `SELECT`
 - [ ] `insert_product(name, brand, category) -> int`
-- [ ] `link(seller_name, product_id, seller_product_id) -> bool` via `INSERT OR IGNORE`, returning whether a row was written
+- [ ] `link(...) -> bool` via `INSERT ... ON CONFLICT DO NOTHING`, returning whether a row was written. **Not `INSERT OR IGNORE`** (`DS3`)
 - [ ] Every statement parameterized; no f-strings or concatenation in SQL
 
-**Done when:** a unit test confirms `link` returns `True` then `False` for the same pair, and `insert_product` round-trips a brand containing `'; SELECT 1; --` unchanged.
+**Tests:** `link` returns `True` then `False` for the same pair; `insert_product` round-trips a brand containing `'; SELECT 1; --` unchanged; `test_malformed_record_is_reported_not_skipped` proves a `NOT NULL` violation raises rather than counting as a duplicate.
+
+**Done when:** those pass and `pragma foreign_keys` reads 1 on a live connection.
 
 ## 6. Consolidator (`D1`, `D2`, `D4`, `D5`, `DS1`, `DS6`)
 
@@ -83,6 +87,10 @@ Order is chosen so that every step is verifiable on its own, and so the two hard
 - [ ] Assert the 3 inserted products are exactly `Roteador WiFi 6 TP-Link`, `Processador AMD Ryzen 9 7950X`, `Security Test Product`
 - [ ] `test_idempotent_second_run`: run twice, second adds nothing
 - [ ] `test_injection_record_stored_literally`
+- [ ] `test_existing_products_untouched`: all 975 pre-existing rows byte-identical afterwards (`D2`)
+- [ ] `test_failure_rolls_back`: an injected mid-run error leaves both tables unchanged (`D8`)
+- [ ] `test_dry_run_mutates_nothing`: file hash unchanged, migration included in the rollback (`DS5`)
+- [ ] Confirm the committed `data/catalog.db` hash is unchanged after the whole suite runs
 
 **Done when:** every number matches with no adjustment to the expected values. If a number differs, the implementation is wrong or a decision needs revisiting — the table is not to be edited to fit the code.
 

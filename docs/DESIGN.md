@@ -64,11 +64,25 @@ Two distinct operations, needing different mechanisms:
 
 Both run inside one transaction, so a failure leaves the original schema intact.
 
-### DS3 — Duplicate suppression uses `INSERT OR IGNORE` and its rowcount
+### DS3 — Duplicate suppression uses `ON CONFLICT DO NOTHING`, not `OR IGNORE`
 
-Links are written with `INSERT OR IGNORE INTO SellerProduct (...)`. Verified: `rowcount` is 1 when the row is written and 0 when a unique index rejects it, which gives the skipped-listing count for free and with no read-before-write.
+Links are written with `INSERT INTO SellerProduct (...) VALUES (...) ON CONFLICT DO NOTHING`. `rowcount` is 1 when the row is written and 0 when a unique index rejects it, which yields the skipped-listing count with no read-before-write.
+
+**`INSERT OR IGNORE` would be a bug here**, and the distinction is not cosmetic. `OR IGNORE` suppresses *every* constraint violation, not just uniqueness. Verified: a row with a null `SellerName` is silently discarded with `rowcount = 0`, which is indistinguishable from a duplicate skip. A malformed record would then be counted as a duplicate listing instead of reported as an error, quietly corrupting the report and defeating `D7`. `ON CONFLICT DO NOTHING` raises `IntegrityError: NOT NULL constraint failed` on the same input, so the record is reportable.
+
+Neither form catches a foreign-key violation, which is handled by `DS8`.
 
 This is why `D5` puts idempotency in the schema rather than in application logic. A `SELECT` then `INSERT` would be two statements racing each other and would need the count tracked separately.
+
+### DS8 — Connection setup: pragmas before any statement, explicit transactions
+
+Two SQLite behaviours make this non-obvious, both verified.
+
+**`PRAGMA foreign_keys` is silently ignored inside a transaction.** Python's `sqlite3` opens an implicit transaction on the first data-modifying statement under its default `isolation_level`, so a pragma issued after any write is a no-op that reports success. A foreign-key violation then inserts happily. The repository therefore sets `PRAGMA foreign_keys = ON` as the first statement on a fresh connection and asserts it reads back as 1.
+
+**Transaction boundaries are managed explicitly.** The connection is opened with `isolation_level=None`, so `BEGIN`, `COMMIT`, and `ROLLBACK` are issued in code rather than inferred. `D8` requires one transaction spanning the whole run, and implicit transaction handling would otherwise commit at points the design does not choose.
+
+Verified that the pragma survives a rollback, so enforcement is not lost when a run aborts.
 
 ### DS4 — No default database path
 
@@ -89,7 +103,9 @@ python -m catalog_consolidation --database data/catalog.local.db --input data/Pr
 python -m catalog_consolidation --database PATH --input PATH [--dry-run] [--report {text,json}]
 ```
 
-- `--dry-run` runs the full consolidation inside a transaction and rolls back, printing the report it would have produced. This makes the acceptance numbers observable without mutating anything.
+- `--dry-run` wraps **both the migration and the consolidation** in a single transaction and rolls it back, printing the report it would have produced. Including the migration is required for the run to be meaningful, since consolidation depends on the widened column and the unique indexes from `D3` and `D5`. It is also required for the run to be honest: committing the migration and rolling back only the inserts would mutate the file during an operation named dry run.
+
+  This works because SQLite makes DDL transactional. Verified against a copy of the supplied catalog: a table rebuild, two `CREATE UNIQUE INDEX` statements, a `PRAGMA user_version` bump, and a product insert all roll back together, leaving the declared column type, the index list, the row count, `user_version`, and the file bytes exactly as they were.
 - `--report json` emits the report as JSON for assertion in tests and by machines.
 - Exit code 0 on success, 1 when any record failed, 2 on a usage or I/O error. A run that skips duplicates is a success, not a failure — skipping is the specified behaviour.
 
@@ -126,7 +142,10 @@ The acceptance numbers in `DECISIONS.md` are the primary test, and they are know
 | `test_consolidate_acceptance` | full run on a copy of the supplied catalog reproduces 269/266/3/978/257/12 exactly |
 | `test_idempotent_second_run` | rerunning the same file adds zero rows to either table (`D5`) |
 | `test_injection_record_stored_literally` | the `TestBrand'; SELECT 1; --` brand round-trips as an exact string and the schema is unchanged (`D7`) |
-| `test_dry_run_mutates_nothing` | file hash is identical after `--dry-run` (`DS5`) |
+| `test_existing_products_untouched` | every pre-existing `Product` row is byte-identical after a full run, including the 119 null brands and the `Photo`/`Photography` disagreement (`D2`) |
+| `test_failure_rolls_back` | an error injected mid-run leaves the database with zero new rows in either table (`D8`) |
+| `test_malformed_record_is_reported_not_skipped` | a record that violates `NOT NULL` appears in `Report.errors` and is *not* counted as a duplicate listing (`DS3`) |
+| `test_dry_run_mutates_nothing` | file hash is identical after `--dry-run`, including when the migration has not yet been applied (`DS5`) |
 
 Integration tests copy `data/catalog.db` to a temporary path per test. The committed baseline is never opened for writing.
 

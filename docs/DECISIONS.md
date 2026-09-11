@@ -107,7 +107,7 @@ Rationale for the second constraint: `SellerProduct` exists to record which sell
 
 Tradeoff: this discards the duplicate listing's `SellerProductId`. A real marketplace can legitimately have one seller listing the same product twice under different SKUs, and this schema deliberately cannot express that. Accepted because the assessment's stated goal is recording which sellers offer each product, not modelling listings.
 
-Enforcement is by constraint plus `INSERT ... ON CONFLICT DO NOTHING` rather than a read-then-write check, so concurrent runs cannot interleave into a duplicate.
+Enforcement is by constraint plus `INSERT ... ON CONFLICT DO NOTHING` rather than a read-then-write check, so concurrent runs cannot interleave into a duplicate. Specifically `ON CONFLICT DO NOTHING` and not `INSERT OR IGNORE`, which would also swallow `NOT NULL` violations and miscount malformed records as duplicates — see `DS3` in `DESIGN.md`.
 
 ### D6 — Portuguese/English pairs are accepted as new products, not matched
 
