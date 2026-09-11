@@ -13,10 +13,14 @@ A traditional e-commerce company is becoming a marketplace. It owns a catalog of
 ```
 data/catalog.db          SQLite catalog as supplied (975 products) - pristine, never mutated
 data/ProductEntry.json   seller submissions as supplied (269 records, 20 sellers)
-docs/DECISIONS.md        the decision record: what was chosen, measured, and traded away
+docs/DECISIONS.md        what was chosen and why, with the tradeoff each decision accepts
+docs/DESIGN.md           how it is built: module boundaries, migration, CLI, test strategy
+docs/TASKS.md            ordered implementation plan with per-step verification
 src/catalog_consolidation/
 tests/
 ```
+
+Read `docs/DECISIONS.md` first. It is the reasoning trail, and `D2` (first write wins) and `D6` (two documented false negatives) are the decisions most worth challenging.
 
 `data/catalog.db` is committed unmodified and serves as the baseline. Ingestion runs against a copy so that runs are repeatable and the baseline stays restorable from git.
 

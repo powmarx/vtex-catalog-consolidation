@@ -62,11 +62,31 @@ Tradeoff: the catalog forgoes genuinely better incoming data. A record with a br
 
 ### D3 — `SellerProductId` becomes `TEXT`
 
-The column is `INTEGER NOT NULL`; every incoming `Id` is a UUID string and none is an integer. The data cannot be loaded without either widening the column or inventing a surrogate.
+The column is `INTEGER NOT NULL` and every incoming `Id` is a UUID string.
 
-Chosen: widen to `TEXT`, shipped as a migration in the repo. This is the schema change the assessment explicitly sanctions.
+An earlier version of this decision claimed the data could not be loaded without widening the column. That was wrong, and the correction is worth recording. SQLite uses type affinity rather than strict typing: a non-numeric string offered to an `INTEGER` column is stored unchanged. Verified — inserting `a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d` succeeds and `typeof()` reports `text`. Ingestion would work with no migration at all, quietly storing text in a column declared integer.
+
+The migration is still made, for two measured reasons that survive the correction.
+
+**Silent coercion mangles numeric-looking identifiers.** On an `INTEGER` column, affinity converts any string that looks numeric:
+
+| Seller sends | `INTEGER` column stores | `TEXT` column stores |
+| --- | --- | --- |
+| `007` | `7` | `007` |
+| `0012` | `12` | `0012` |
+| `1e3` | `1000` | `1e3` |
+| ` 42` | `42` | ` 42` |
+| `a1b2c3d4-e5f6` | `a1b2c3d4-e5f6` | `a1b2c3d4-e5f6` |
+
+A seller SKU carrying leading zeros or padding is irreversibly altered. An identifier is an opaque token; a column that rewrites it is the wrong column.
+
+**Worse, coercion breaks D5.** Because `007` and `7` both collapse to `7`, two genuinely different seller listings collide on `UNIQUE(SellerName, SellerProductId)` and one is silently discarded as a duplicate. Verified: inserting `007` then `7` into a unique-indexed `INTEGER` column raises a constraint violation, while a `TEXT` column stores both. The idempotency guarantee is only sound if the column preserves what it is given.
+
+None of this bites on the supplied file, where every `Id` is a non-numeric UUID. The migration is a correctness guarantee for the identifiers this schema invites rather than a fix for a present failure, which is a weaker but honest justification.
 
 Tradeoff: rejected the surrogate-integer alternative because it preserves the original schema at the cost of losing traceability back to the seller's own identifier, which is the one thing that column exists to hold.
+
+Implementation note: SQLite cannot alter a column's declared type, so this migration rebuilds `SellerProduct` — create, copy, drop, rename. The table is empty here, but the migration copies rows so it remains correct against a populated database. The D5 constraints need no rebuild; `CREATE UNIQUE INDEX` adds them in place.
 
 ### D4 — Identity of a seller listing is `(SellerName, Id)`, never `Id` alone
 
