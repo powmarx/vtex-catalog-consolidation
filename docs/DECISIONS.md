@@ -132,6 +132,12 @@ That same record also carries a malformed identifier, and it is not the only one
 
 Null brands (3 records) normalize to an empty string and participate in matching normally.
 
+**Identifiers are preserved byte for byte.** `Name`, `Brand` and `Category` have surrounding whitespace stripped on load, because that is presentational. `Id` does not. It is an opaque token, so anything that alters it changes which listing it denotes.
+
+This began as a bug, and the bug is worth recording because it is the same mistake `D3` is about. The loader stripped every field alike, which turned `' 42'` and `'42 '` into one `'42'` — two distinct listings collapsing, with the second silently suppressed as a duplicate. `D3` widened `SellerProductId` to `TEXT` so the *database* could not rewrite an identifier through integer affinity; the loader was rewriting it one layer earlier, so the migration was protecting a value that had already been altered.
+
+The supplied file contains no such ids, so no test built on it could have caught this. A synthetic fixture did, on the first run. Blankness is still judged on the stripped form: an id of `'   '` is no identifier and is reported as missing.
+
 Per-record failures are collected and reported rather than aborting the batch, so one bad record cannot cost the other 268.
 
 Tradeoff: no schema validation on input. A record missing `Name` would fail on the `NOT NULL` constraint and be reported rather than rejected up front. Acceptable at this size; a real ingest would validate before touching the database.

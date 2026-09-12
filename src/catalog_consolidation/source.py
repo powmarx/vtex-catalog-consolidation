@@ -96,6 +96,8 @@ def _parse_record(raw: object, index: int) -> tuple[SellerEntry | None, RecordEr
     seller_name = _clean(raw.get("SellerName"))
     entry_id = _clean(raw.get("Id"))
 
+    # Blankness is judged on the stripped form for every field, but only Name, Brand and
+    # Category are *stored* stripped. Id keeps its original bytes -- see _verbatim().
     missing = [f for f in REQUIRED_TEXT_FIELDS if not _clean(raw.get(f))]
     if missing:
         return None, RecordError(
@@ -120,7 +122,8 @@ def _parse_record(raw: object, index: int) -> tuple[SellerEntry | None, RecordEr
 
     return (
         SellerEntry(
-            entry_id=entry_id,  # type: ignore[arg-type]  # guaranteed non-empty above
+            # Preserved exactly, never stripped. See _verbatim() for why.
+            entry_id=_verbatim(raw.get("Id")),  # type: ignore[arg-type]
             seller_name=seller_name,  # type: ignore[arg-type]
             name=_clean(raw.get("Name")),  # type: ignore[arg-type]
             brand=_clean(raw.get("Brand")),
@@ -129,6 +132,32 @@ def _parse_record(raw: object, index: int) -> tuple[SellerEntry | None, RecordEr
         ),
         None,
     )
+
+
+def _verbatim(value: object) -> str | None:
+    """Return an identifier exactly as supplied, or None if it is absent or blank.
+
+    `Id` is the seller's own identifier for their listing, and D7 treats it as an opaque
+    token: only ever stored and compared for equality. So it must not be rewritten.
+
+    This was a bug. The loader used to strip surrounding whitespace from every field
+    including `Id`, which turned `' 42'` and `'42 '` into the same `'42'` -- two distinct
+    listings collapsing into one, with the second silently suppressed as a duplicate. A
+    synthetic fixture caught it; the supplied file has no such ids.
+
+    The point is worth stating because it is the same mistake D3 is about. That decision
+    widened `SellerProductId` to TEXT so the *database* could not rewrite an identifier
+    through integer affinity. Stripping it in the loader rewrote it one layer earlier, so
+    the migration was defending a value that had already been altered.
+
+    Blankness is still judged on the stripped form: an id of `'   '` is no identifier at
+    all and is reported as missing.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return value  # type: ignore[return-value]  # caller reports the type error
+    return value if value.strip() else None
 
 
 def _clean(value: object) -> str | None:

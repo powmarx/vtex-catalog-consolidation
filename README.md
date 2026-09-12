@@ -56,7 +56,40 @@ set PYTHONPATH=src
 python -m unittest discover -s tests
 ```
 
-185 tests. The acceptance tests in `tests/test_acceptance.py` assert the expected-outcome table from `docs/DECISIONS.md`, which was measured before any code existed — so it is a contract, not a description of what the code happens to do.
+218 tests, in two kinds.
+
+`tests/test_acceptance.py` asserts the expected-outcome table from `docs/DECISIONS.md`, measured before any code existed — a contract, not a description of what the code happens to do.
+
+`tests/test_generated.py` runs against synthetic catalogs and asserts *invariants* that must hold for any input: that every record is accounted for exactly once, that `inserted` equals the change in product count, that neither unique constraint is ever violated, and that every seller identifier round-trips byte for byte. Golden numbers catch regressions; invariants catch overfitting to one fixture.
+
+## Generating test data
+
+Every test above except the generated ones runs on the two supplied artifacts, which is a single fixture that does not contain several situations the implementation claims to handle. `scripts/generate_fixture.py` produces those situations so the claims can be tested rather than asserted.
+
+```
+python scripts/generate_fixture.py --list
+python scripts/generate_fixture.py --scenario numeric-ids --out build/fx
+python scripts/generate_fixture.py --scenario scale --products 50000 --records 20000
+```
+
+| Scenario | What it exercises |
+| --- | --- |
+| `baseline` | clean data, every record matching exactly |
+| `numeric-ids` | seller ids like `007`, `1e3`, `' 42'` — the reason `D3` exists |
+| `brand-ambiguity` | a name existing both with and without a brand, and one name under two brands |
+| `within-run-new` | six sellers submitting one product the catalog lacks |
+| `populated` | a non-empty `SellerProduct`, so the migration's row-copy path runs |
+| `dirty` | every record a whitespace, case, accent or punctuation variant |
+| `duplicates` | both duplicate shapes, plus a cross-seller id reuse that must *not* be suppressed |
+| `malformed` | unprocessable records interleaved among good ones |
+| `scale` | a large catalog, for timing |
+| `adversarial` | all of the above at once, shuffled, plus an injection payload |
+
+Output is a directory holding `catalog.db`, `ProductEntry.json` and a `manifest.json` describing what was planted. Deterministic: the same `--seed` gives the same bytes. Fixtures start unmigrated, like the supplied file.
+
+This earned its place immediately by finding a real bug — the loader was stripping whitespace from seller identifiers, so `' 42'` and `'42 '` collapsed into one listing and the second was silently dropped. No test built on the supplied file could have caught it, because the supplied file has no such ids. See `D7`.
+
+At 50,000 products and 20,000 records the ingest takes about two seconds.
 
 ## Review candidates
 

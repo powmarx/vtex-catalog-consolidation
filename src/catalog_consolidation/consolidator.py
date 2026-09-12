@@ -211,12 +211,22 @@ def _record_discarded(report: Report, entry: SellerEntry, product: Product | Non
 
 
 def _suppression_reason(report: Report, entry: SellerEntry, product_id: int) -> str:
-    """Which unique index refused the link.
+    """Which unique index refused the link, and whether the clash is inside this run.
 
-    Distinguishing the two matters: `(SellerName, SellerProductId)` means the identical
-    listing arrived twice, while `(SellerName, ProductId)` means the same seller offered
-    the same product under a different id. On the supplied file the first accounts for 1
-    of the 12 suppressions and the second for 11.
+    Three cases, and telling them apart is what makes the report useful:
+
+    - the identical listing arrived twice in this file, caught by
+      `(SellerName, SellerProductId)`;
+    - this seller already offered this product in this file under a different id, caught
+      by `(SellerName, ProductId)`;
+    - neither, which means the row it clashes with was already in the database -- a
+      re-ingest of a file that has been processed before.
+
+    On the supplied file the first accounts for 1 of the 12 suppressions and the second
+    for 11. The third only appears on a second run, and it used to fall through to a
+    vague "suppressed by a unique constraint" that named nothing. A synthetic re-ingest
+    made that unhelpfulness obvious: every one of 25 suppressions said the same
+    uninformative thing.
     """
     seen_listing = any(
         o.seller_name == entry.seller_name and o.entry_id == entry.entry_id for o in report.outcomes
@@ -228,7 +238,7 @@ def _suppression_reason(report: Report, entry: SellerEntry, product_id: int) -> 
     )
     if seen_offer:
         return "duplicate offer: this seller is already recorded against this product under another id"
-    return "suppressed by a unique constraint"
+    return "already linked: this seller is recorded against this product from an earlier run"
 
 
 def find_review_candidates(

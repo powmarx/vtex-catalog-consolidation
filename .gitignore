@@ -7,6 +7,10 @@ data/catalog.local.db
 # Per-run findings reports (D11). Run artifacts, not source.
 reports/
 
+# Generated fixtures. Reproducible from scripts/generate_fixture.py with a seed,
+# so there is nothing to preserve.
+build/
+
 # Python
 __pycache__/
 *.py[cod]
