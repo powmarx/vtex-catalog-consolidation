@@ -98,6 +98,10 @@ MUTATIONS: list[tuple[str, object]] = [
     ("modify ProductEntry.json", mutate_entries),
     ("leave trailing whitespace in a doc", lambda r: patch(r, "docs/SCHEMA.md", "# Schema reference", "# Schema reference  ")),
     ("unbalance a code fence", lambda r: patch(r, "docs/DESIGN.md", "```mermaid", "``mermaid")),
+    ("overclaim normalize.py's independence again", lambda r: patch(r, "docs/DESIGN.md", "`normalize.py` imports nothing but `unicodedata` and a type alias", "`normalize.py` imports nothing.")),
+    ("let README overclaim it too", lambda r: patch(r, "README.md", "unicodedata and a type alias", "nothing at all")),
+    ("break the sqlite3 boundary in the source", lambda r: patch(r, "src/catalog_consolidation/consolidator.py", "from __future__ import annotations", "from __future__ import annotations\n\nimport sqlite3")),
+    ("give normalize.py a dependency the docs do not mention", lambda r: patch(r, "src/catalog_consolidation/normalize.py", "import unicodedata", "import unicodedata\nimport json")),
 ]
 
 

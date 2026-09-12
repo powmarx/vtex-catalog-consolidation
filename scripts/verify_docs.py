@@ -24,6 +24,7 @@ No dependencies beyond the standard library.
 from __future__ import annotations
 
 import argparse
+import ast
 import collections
 import hashlib
 import json
@@ -73,6 +74,22 @@ except Exception:  # ImportError, or the module not written yet
 
 def match_key(name: str | None, brand: str | None) -> tuple[str, str]:
     return _normalize(name), _normalize(brand)
+
+
+def imported_names(path: Path) -> set[str]:
+    """Every name a module imports, read from its AST.
+
+    Relative imports keep their leading dots, so `.models` is distinguishable from a
+    third-party `models`. Used to check the module-boundary claims in DESIGN.md against
+    the source rather than trusting them.
+    """
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.add("." * node.level + (node.module or ""))
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -1035,6 +1052,33 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.equals("the reading order points at nothing missing", sorted(linked - on_disk), [])
     c.states("it names the two most challengeable decisions", reading_order, "most open to challenge")
     c.states("it says the docs are not required to review the code", reading_order, "Nothing in `docs/` is required")
+
+    # The module boundaries are the architectural claim DESIGN.md leads with, and they
+    # are checkable against the source rather than takeable on trust. They were not:
+    # three places said `normalize.py` imports nothing, and it imports the MatchKey
+    # alias. A boundary that is stated but unverified is a boundary that drifts.
+    c.begin("docs/module boundaries match the source")
+    package = ROOT / "src" / "catalog_consolidation"
+    if not (package / "normalize.py").exists():
+        c.check("the package is present", False, f"not found: {package}")
+    else:
+        c.equals(
+            "normalize.py imports only unicodedata and the MatchKey alias",
+            imported_names(package / "normalize.py"),
+            {"__future__", "unicodedata", ".models"},
+        )
+        c.states(
+            "DESIGN names that import set instead of claiming none",
+            design,
+            "imports nothing but `unicodedata` and a type alias",
+        )
+        c.absent("DESIGN does not claim normalize.py imports nothing at all", design, "`normalize.py` imports nothing.")
+        c.absent("DESIGN does not claim no imports beyond stdlib", design, "no imports beyond stdlib")
+        c.states("README names the same import set", readme, "unicodedata and a type alias")
+
+        importers = sorted(p.name for p in package.glob("*.py") if "sqlite3" in imported_names(p))
+        c.equals("only the repository and the migration import sqlite3", importers, ["migration.py", "repository.py"])
+        c.states("DESIGN states the sqlite3 boundary", design, "the only module that imports `sqlite3`")
 
 
 # ---------------------------------------------------------------------------

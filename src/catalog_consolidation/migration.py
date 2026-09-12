@@ -76,21 +76,51 @@ def apply(connection: sqlite3.Connection) -> bool:
     Returns True if anything changed, False if it was already applied. Assumes the
     caller owns transaction control: it does not begin or commit, so the migration can
     share a transaction with the ingest and be rolled back with it (DS5, D8).
+
+    Raises `MigrationError` on any SQLite failure, so a caller need not know about
+    `sqlite3`. The rebuild and the index creation used to run bare, which meant a
+    database already holding rows that violate the new unique indexes surfaced a
+    `sqlite3.IntegrityError` traceback instead of the documented exit code 2.
     """
-    if is_applied(connection):
-        return False
+    try:
+        if is_applied(connection):
+            # `user_version` alone is not proof. A database that claims version 1 without
+            # the unique indexes would ingest happily and suppress nothing -- D5 silently
+            # absent, with the run reporting success. Verify rather than trust.
+            _require_unique_indexes(connection)
+            return False
 
-    _require_expected_shape(connection)
+        _require_expected_shape(connection)
 
-    if _declared_type(connection, "SellerProduct", "SellerProductId") != "TEXT":
-        _widen_seller_product_id(connection)
+        if _declared_type(connection, "SellerProduct", "SellerProductId") != "TEXT":
+            _widen_seller_product_id(connection)
 
-    _create_unique_indexes(connection)
+        _create_unique_indexes(connection)
+        _require_unique_indexes(connection)
 
-    # A literal is required: PRAGMA does not accept a bound parameter. The value is a
-    # module constant, never user input, so there is nothing to interpolate unsafely.
-    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION:d}")
+        # A literal is required: PRAGMA does not accept a bound parameter. The value is a
+        # module constant, never user input, so there is nothing to interpolate unsafely.
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION:d}")
+    except sqlite3.Error as exc:
+        raise MigrationError(f"{type(exc).__name__}: {exc}") from exc
     return True
+
+
+def _require_unique_indexes(connection: sqlite3.Connection) -> None:
+    """Both D5 indexes must exist, whatever `user_version` claims."""
+    present = {
+        row[1]
+        for row in connection.execute('PRAGMA index_list("SellerProduct")')
+        if not str(row[1]).startswith("sqlite_")
+    }
+    missing = {LISTING_INDEX, OFFER_INDEX} - present
+    if missing:
+        raise MigrationError(
+            "the database reports schema version "
+            f"{current_version(connection)} but is missing {', '.join(sorted(missing))}. "
+            "Duplicate suppression (D5) depends on these, so ingesting now would record "
+            "duplicates while reporting success."
+        )
 
 
 def _require_expected_shape(connection: sqlite3.Connection) -> None:

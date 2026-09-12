@@ -21,7 +21,6 @@ aborting mid-transaction.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
 from pathlib import Path
 
 from .models import RecordError, SellerEntry
@@ -179,6 +178,4 @@ def _clean(value: object) -> str | None:
     return stripped or None
 
 
-def iter_names(entries: Iterable[SellerEntry]) -> Iterable[str]:
-    """Convenience for callers that only need the names."""
-    return (entry.name for entry in entries)
+

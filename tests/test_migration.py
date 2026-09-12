@@ -141,6 +141,56 @@ class TestApply(SuppliedSchemaTestCase):
         )
 
 
+class TestVersionIsVerifiedNotTrusted(SuppliedSchemaTestCase):
+    """`user_version` is a bare integer anyone can set. It is a hint, not evidence.
+
+    This is the failure that made the check necessary: a database claiming version 1
+    without the D5 indexes ingested all 269 records, suppressed nothing, and exited 0.
+    Duplicate suppression is the core requirement, so its absence must be loud.
+    """
+
+    def test_a_version_claim_without_the_indexes_is_refused(self):
+        conn = self.fresh_db()
+        conn.execute("PRAGMA user_version = 1")
+        self.assertTrue(migration.is_applied(conn), "the claim is believed by is_applied")
+        with self.assertRaises(migration.MigrationError) as ctx:
+            migration.apply(conn)
+        message = str(ctx.exception)
+        self.assertIn(migration.LISTING_INDEX, message)
+        self.assertIn(migration.OFFER_INDEX, message)
+
+    def test_a_version_claim_with_only_one_index_is_refused(self):
+        conn = self.fresh_db()
+        conn.execute(
+            f"CREATE UNIQUE INDEX {migration.LISTING_INDEX} ON SellerProduct (SellerName, SellerProductId)"
+        )
+        conn.execute("PRAGMA user_version = 1")
+        with self.assertRaises(migration.MigrationError) as ctx:
+            migration.apply(conn)
+        message = str(ctx.exception)
+        self.assertIn(migration.OFFER_INDEX, message)
+        self.assertNotIn(migration.LISTING_INDEX, message, "only the missing one is named")
+
+    def test_a_genuinely_migrated_database_passes_the_check(self):
+        conn = self.fresh_db()
+        migration.apply(conn)
+        self.assertFalse(migration.apply(conn), "no false alarm on the real thing")
+
+    def test_existing_rows_that_violate_the_new_index_raise_migration_error(self):
+        # Not sqlite3.IntegrityError: cli.py does not import sqlite3, so an untranslated
+        # failure here surfaces as a traceback instead of the documented exit code 2.
+        conn = self.fresh_db()
+        conn.execute("INSERT INTO Product (Name) VALUES ('P')")
+        for listing_id in ("first", "second"):
+            conn.execute(
+                "INSERT INTO SellerProduct (SellerName, ProductId, SellerProductId) VALUES (?,?,?)",
+                ("S", 1, listing_id),
+            )
+        with self.assertRaises(migration.MigrationError) as ctx:
+            migration.apply(conn)
+        self.assertIsInstance(ctx.exception.__cause__, sqlite3.IntegrityError)
+
+
 class TestTextColumnBehaviour(SuppliedSchemaTestCase):
     """Why D3 widens the column, asserted rather than argued."""
 

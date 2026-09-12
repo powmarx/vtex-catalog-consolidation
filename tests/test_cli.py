@@ -286,6 +286,43 @@ class TestFailureModes(CliTestCase):
         code, _, _ = self.invoke("--no-report-file")
         self.assertEqual(code, 0, "a run where every record is a duplicate still succeeded")
 
+    def test_an_unusable_database_file_exits_two_without_a_traceback(self):
+        """A SQLite-level failure must arrive as a message, not as a stack trace.
+
+        `cli.py` deliberately does not import `sqlite3`, so this only holds because the
+        repository and the migration translate `sqlite3.Error` at their boundary. Before
+        they did, this raised `sqlite3.DatabaseError` straight out of `main`.
+
+        A locked database takes the same path and was verified by hand; it is not a test
+        because SQLite's default busy timeout makes it wait five seconds first.
+        """
+        self.db.write_bytes(b"not a database, but the right length to look plausible" * 32)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["--database", str(self.db), "--input", str(ENTRIES), "--no-report-file"])
+        self.assertEqual(code, cli.EXIT_USAGE)
+        self.assertIn("error:", err.getvalue())
+        self.assertIn("not a database", err.getvalue())
+
+    def test_a_database_claiming_to_be_migrated_without_the_indexes_exits_two(self):
+        """The D5 indexes are the whole duplicate-suppression guarantee.
+
+        `user_version` is a bare integer with no relationship to the schema, so a file
+        claiming version 1 without the indexes would ingest all 269 records, suppress
+        nothing, and exit 0 -- the requirement silently absent from a run that reported
+        success. It must refuse instead.
+        """
+        conn = sqlite3.connect(str(self.db), isolation_level=None)
+        conn.execute("PRAGMA user_version = 1")
+        conn.close()
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["--database", str(self.db), "--input", str(ENTRIES), "--no-report-file"])
+        self.assertEqual(code, cli.EXIT_USAGE)
+        self.assertIn("missing", err.getvalue())
+        self.assertEqual(self.counts(), (975, 0), "it refused before writing anything")
+
 
 if __name__ == "__main__":
     unittest.main()

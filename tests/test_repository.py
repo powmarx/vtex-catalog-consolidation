@@ -252,6 +252,58 @@ class TestTransactionControl(RepositoryTestCase):
         self.assertEqual(self.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
 
+class TestSqliteFailuresAreTranslated(RepositoryTestCase):
+    """Every statement goes through `_execute`, so nothing above sees a `sqlite3` error.
+
+    The import boundary below is checked statically, but it only holds at run time if
+    the *operational* failures are translated too. Before `_execute` existed, `begin`,
+    `commit`, `rollback` and the read methods issued bare `execute()` calls, so a locked
+    database produced a traceback and exit code 1 where the CLI contract promises 2.
+    """
+
+    def test_a_read_against_a_missing_table_raises_repository_error(self):
+        self.connection.execute("DROP TABLE SellerProduct")
+        self.connection.execute("DROP TABLE Product")
+        for name, call in (
+            ("product_count", self.repo.product_count),
+            ("load_index", self.repo.load_index),
+            ("link_count", self.repo.link_count),
+        ):
+            with self.subTest(method=name):
+                with self.assertRaises(RepositoryError) as ctx:
+                    call()
+                self.assertNotIsInstance(ctx.exception, RepositoryIntegrityError)
+                self.assertIsInstance(ctx.exception.__cause__, sqlite3.OperationalError)
+                self.assertIn("OperationalError", str(ctx.exception))
+
+    def test_iter_products_against_a_missing_table_raises_repository_error(self):
+        self.connection.execute("DROP TABLE SellerProduct")
+        self.connection.execute("DROP TABLE Product")
+        with self.assertRaises(RepositoryError):
+            list(self.repo.iter_products())
+
+    def test_a_nested_begin_raises_repository_error(self):
+        self.repo.begin()
+        self.addCleanup(self.repo.rollback)
+        with self.assertRaises(RepositoryError) as ctx:
+            self.repo.begin()
+        self.assertIsInstance(ctx.exception.__cause__, sqlite3.OperationalError)
+
+    def test_a_commit_outside_a_transaction_raises_repository_error(self):
+        self.assertFalse(self.repo.in_transaction)
+        with self.assertRaises(RepositoryError) as ctx:
+            self.repo.commit()
+        self.assertIsInstance(ctx.exception.__cause__, sqlite3.OperationalError)
+
+    def test_a_write_refusal_keeps_the_sqlite_error_as_the_root_cause(self):
+        # Not a RepositoryIntegrityError wrapping another one: the caller needs the
+        # original to tell a constraint name apart from our own message.
+        with self.assertRaises(RepositoryIntegrityError) as ctx:
+            with self.repo.transaction():
+                self.repo.insert_product(None, None, None)  # type: ignore[arg-type]
+        self.assertIsInstance(ctx.exception.__cause__, sqlite3.IntegrityError)
+
+
 class TestOnlyThisModuleTouchesSqlite(unittest.TestCase):
     """DS design boundary: the package must not import sqlite3 anywhere else."""
 

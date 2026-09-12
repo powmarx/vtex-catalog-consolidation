@@ -65,8 +65,13 @@ def consolidate(
     Assumes the caller has opened a transaction. Nothing here commits: the run is one
     unit of work owned by the caller (D8).
     """
-    report = Report(records_read=len(entries) + len(list(errors)))
-    report.errors.extend(errors)
+    # Materialise first. The parameter is an Iterable, and consuming it twice -- once to
+    # count, once to store -- silently dropped every error when handed a generator: the
+    # count was right, the list empty, and the run exited 0 having discarded records. The
+    # CLI passes a list, so nothing in the suite caught it.
+    load_errors = list(errors)
+    report = Report(records_read=len(entries) + len(load_errors))
+    report.errors.extend(load_errors)
     report.products_before = repository.product_count()
 
     index = repository.load_index()
@@ -75,10 +80,23 @@ def consolidate(
     # product that did not exist when the run began, which is worth telling apart in the
     # audit trail even though both count as a match.
     created_here: set[int] = set()
+    # Rows this run actually wrote. Only these may be used to attribute a suppression;
+    # see _suppression_reason.
+    written_listings: set[tuple[str, str]] = set()
+    written_offers: set[tuple[str, int]] = set()
 
     for entry in entries:
         try:
-            _process(entry, repository, index, created_here, inserted_products, report)
+            _process(
+                entry,
+                repository,
+                index,
+                created_here,
+                inserted_products,
+                report,
+                written_listings,
+                written_offers,
+            )
         except RepositoryIntegrityError as exc:
             # D7/DS3: a constraint refused this record. Report it and carry on -- a
             # SQLite constraint failure does not invalidate the transaction, so the
@@ -116,6 +134,8 @@ def _process(
     created_here: set[int],
     inserted_products: list[tuple[SellerEntry, int]],
     report: Report,
+    written_listings: set[tuple[str, str]],
+    written_offers: set[tuple[str, int]],
 ) -> None:
     """Resolve and link one record. Raises `RepositoryIntegrityError` on a refusal."""
     key = match_key(entry.name, entry.brand)
@@ -143,6 +163,8 @@ def _process(
 
     if repository.link(entry.seller_name, product_id, entry.entry_id):
         report.links_created += 1
+        written_listings.add((entry.seller_name, entry.entry_id))
+        written_offers.add((entry.seller_name, product_id))
         report.outcomes.append(
             RecordOutcome(
                 source_index=entry.source_index,
@@ -163,7 +185,7 @@ def _process(
                 entry_id=entry.entry_id,
                 verdict=Verdict.SUPPRESSED,
                 product_id=product_id,
-                detail=_suppression_reason(report, entry, product_id),
+                detail=_suppression_reason(written_listings, written_offers, entry, product_id),
             )
         )
 
@@ -210,7 +232,12 @@ def _record_discarded(report: Report, entry: SellerEntry, product: Product | Non
             )
 
 
-def _suppression_reason(report: Report, entry: SellerEntry, product_id: int) -> str:
+def _suppression_reason(
+    written_listings: set[tuple[str, str]],
+    written_offers: set[tuple[str, int]],
+    entry: SellerEntry,
+    product_id: int,
+) -> str:
     """Which unique index refused the link, and whether the clash is inside this run.
 
     Three cases, and telling them apart is what makes the report useful:
@@ -223,20 +250,17 @@ def _suppression_reason(report: Report, entry: SellerEntry, product_id: int) -> 
       re-ingest of a file that has been processed before.
 
     On the supplied file the first accounts for 1 of the 12 suppressions and the second
-    for 11. The third only appears on a second run, and it used to fall through to a
-    vague "suppressed by a unique constraint" that named nothing. A synthetic re-ingest
-    made that unhelpfulness obvious: every one of 25 suppressions said the same
-    uninformative thing.
+    for 11. The third only appears on a second run.
+
+    The inference is only sound if the sets contain rows this run actually **wrote**. An
+    earlier version scanned every outcome, including `REJECTED` and `SUPPRESSED` ones,
+    which by definition wrote nothing -- so a record rejected mid-run made a later
+    suppression report a within-file duplicate when the real clash was an earlier run's
+    row. Tracking writes instead also removes a scan that was O(n) per suppression.
     """
-    seen_listing = any(
-        o.seller_name == entry.seller_name and o.entry_id == entry.entry_id for o in report.outcomes
-    )
-    if seen_listing:
+    if (entry.seller_name, entry.entry_id) in written_listings:
         return "duplicate listing: this seller already submitted this SellerProductId"
-    seen_offer = any(
-        o.seller_name == entry.seller_name and o.product_id == product_id for o in report.outcomes
-    )
-    if seen_offer:
+    if (entry.seller_name, product_id) in written_offers:
         return "duplicate offer: this seller is already recorded against this product under another id"
     return "already linked: this seller is recorded against this product from an earlier run"
 
@@ -286,13 +310,3 @@ def find_review_candidates(
                 )
     candidates.sort(key=lambda c: (-c.overlap, c.source_index))
     return candidates
-
-
-def index_size(repository: CatalogRepository) -> int:
-    """How many distinct match keys the catalog holds. Used by diagnostics."""
-    return len(repository.load_index())
-
-
-def resolve(index: dict[MatchKey, int], entry: SellerEntry) -> int | None:
-    """The lookup, exposed for tests that want it without a repository."""
-    return index.get(match_key(entry.name, entry.brand))

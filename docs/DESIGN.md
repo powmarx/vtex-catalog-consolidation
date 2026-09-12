@@ -16,7 +16,7 @@ src/catalog_consolidation/
   __main__.py        python -m catalog_consolidation
   cli.py             argument parsing, exit codes, report rendering
   models.py          SellerEntry, Product, MatchKey, Report - plain dataclasses
-  normalize.py       the match key. Pure functions, no imports beyond stdlib
+  normalize.py       the match key. Pure functions, stdlib plus one type alias
   source.py          JSON -> list[SellerEntry], per-record validation
   migration.py       schema migration, idempotent
   repository.py      every SQL statement in the project
@@ -24,7 +24,7 @@ src/catalog_consolidation/
 tests/
 ```
 
-The boundary that matters: **`repository.py` is the only module that imports `sqlite3`**, and `normalize.py` imports nothing. That makes the matching rule unit-testable without a database and the orchestration testable against a fake repository. `consolidator.py` holds the algorithm and knows nothing about SQL.
+The boundary that matters: **`repository.py` is the only module that imports `sqlite3`**, and `normalize.py` imports nothing but `unicodedata` and a type alias. That makes the matching rule unit-testable without a database and the orchestration testable against a fake repository. `consolidator.py` holds the algorithm and knows nothing about SQL.
 
 ## Data flow
 

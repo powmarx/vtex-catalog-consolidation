@@ -138,16 +138,35 @@ class SqliteCatalogRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
 
+    # -- statement execution -----------------------------------------------------
+
+    def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Run a statement, translating SQLite failures at this boundary.
+
+        Every statement goes through here so that no module above the repository has to
+        know about `sqlite3`. That boundary used to hold only at import time: a test
+        asserts no other module imports `sqlite3`, but `begin`, `commit`, the reads and
+        the whole migration issued bare `execute()` calls, so an `OperationalError` from a
+        locked database travelled straight past the CLI's handlers and surfaced as a
+        traceback with exit code 1 -- where the documented contract promises exit 2.
+        """
+        try:
+            return self._connection.execute(sql, params)
+        except sqlite3.IntegrityError as exc:
+            raise RepositoryIntegrityError(str(exc)) from exc
+        except sqlite3.Error as exc:
+            raise RepositoryError(f"{type(exc).__name__}: {exc}") from exc
+
     # -- transaction control (D8) ------------------------------------------------
 
     def begin(self) -> None:
-        self._connection.execute("BEGIN")
+        self._execute("BEGIN")
 
     def commit(self) -> None:
-        self._connection.execute("COMMIT")
+        self._execute("COMMIT")
 
     def rollback(self) -> None:
-        self._connection.execute("ROLLBACK")
+        self._execute("ROLLBACK")
 
     @property
     def in_transaction(self) -> bool:
@@ -181,37 +200,37 @@ class SqliteCatalogRepository:
         a dictionary, testable without SQL.
         """
         index: dict[MatchKey, int] = {}
-        for product_id, name, brand in self._connection.execute("SELECT Id, Name, Brand FROM Product"):
+        for product_id, name, brand in self._execute("SELECT Id, Name, Brand FROM Product"):
             index[match_key(name, brand)] = product_id
         return index
 
     def product_count(self) -> int:
-        return int(self._connection.execute("SELECT count(*) FROM Product").fetchone()[0])
+        return int(self._execute("SELECT count(*) FROM Product").fetchone()[0])
 
     def link_count(self) -> int:
-        return int(self._connection.execute("SELECT count(*) FROM SellerProduct").fetchone()[0])
+        return int(self._execute("SELECT count(*) FROM SellerProduct").fetchone()[0])
 
     def fetch_product(self, product_id: int) -> Product | None:
-        row = self._connection.execute(
-            "SELECT Id, Name, Brand, Category FROM Product WHERE Id = ?", (product_id,)
-        ).fetchone()
+        row = self._execute("SELECT Id, Name, Brand, Category FROM Product WHERE Id = ?", (product_id,)).fetchone()
         return Product(*row) if row else None
 
     def iter_products(self) -> Iterator[Product]:
         """Every catalog product. Used by the D11 candidate search."""
-        for row in self._connection.execute("SELECT Id, Name, Brand, Category FROM Product"):
+        for row in self._execute("SELECT Id, Name, Brand, Category FROM Product"):
             yield Product(*row)
 
     # -- writes ------------------------------------------------------------------
 
     def insert_product(self, name: str, brand: str | None, category: str | None) -> int:
         try:
-            cursor = self._connection.execute(
+            cursor = self._execute(
                 "INSERT INTO Product (Name, Brand, Category) VALUES (?, ?, ?)",
                 (name, brand, category),
             )
-        except sqlite3.IntegrityError as exc:
-            raise RepositoryIntegrityError(f"cannot insert product {name!r}: {exc}") from exc
+        except RepositoryIntegrityError as exc:
+            # Re-raise with context, keeping the sqlite3 exception as the root cause
+            # rather than nesting one RepositoryIntegrityError inside another.
+            raise RepositoryIntegrityError(f"cannot insert product {name!r}: {exc}") from exc.__cause__
         new_id = cursor.lastrowid
         if new_id is None:  # pragma: no cover - sqlite always supplies this for a rowid table
             raise RepositoryError("insert did not yield a product id")
@@ -231,13 +250,15 @@ class SqliteCatalogRepository:
         file's bytes.
         """
         try:
-            cursor = self._connection.execute(
+            cursor = self._execute(
                 "INSERT INTO SellerProduct (SellerName, ProductId, SellerProductId) "
                 "VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
                 (seller_name, product_id, seller_product_id),
             )
-        except sqlite3.IntegrityError as exc:
+        except RepositoryIntegrityError as exc:
+            # As in `insert_product`: keep the sqlite3 exception as the root cause rather
+            # than nesting one RepositoryIntegrityError inside another.
             raise RepositoryIntegrityError(
                 f"cannot link seller {seller_name!r} to product {product_id}: {exc}"
-            ) from exc
+            ) from exc.__cause__
         return cursor.rowcount == 1

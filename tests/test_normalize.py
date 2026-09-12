@@ -7,6 +7,7 @@ is only a meaningful claim about a specific corpus.
 
 from __future__ import annotations
 
+import ast
 import collections
 import json
 import sqlite3
@@ -194,6 +195,33 @@ class TestAgainstTheRealInput(unittest.TestCase):
         conn.close()
         matched = sum(1 for e in self.entries if match_key(e["Name"], e["Brand"]) in index)
         self.assertEqual(matched, 266)
+
+
+class TestThisModuleStaysDependencyFree(unittest.TestCase):
+    """The claim in DESIGN.md, made checkable.
+
+    The matching rule is the highest-risk logic here, and what makes it cheap to test is
+    that it needs no setup: `unicodedata` and one type alias, nothing that opens a file
+    or a connection. Documentation of a boundary drifts; a test does not.
+    """
+
+    ALLOWED = {"unicodedata", "__future__", ".models"}
+
+    def test_normalize_imports_only_unicodedata_and_a_type_alias(self):
+        source = (ROOT / "src" / "catalog_consolidation" / "normalize.py").read_text(encoding="utf-8")
+        imported = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add("." * node.level + (node.module or ""))
+        self.assertEqual(
+            imported - self.ALLOWED,
+            set(),
+            "normalize.py must stay testable without any setup; update DESIGN.md and the "
+            "module docstring if this boundary is moved deliberately",
+        )
+        self.assertIn(".models", imported, "the MatchKey alias: DESIGN.md says so, not 'nothing'")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,21 @@
 # Tasks
 
-**Status: complete.** All nine tasks are done, 233 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
+**Status: complete.** All nine tasks are done, 249 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
 
 Two things landed differently from this plan. `reporting.py` arrived with task 7 rather than task 9, because the CLI needed rendering either way. And task 5 grew an error-translation layer that was not planned: a boundary test caught `cli.py` importing `sqlite3`, and fixing it properly rather than widening the allowlist closed a real gap — `DS3` justified `ON CONFLICT DO NOTHING` on the grounds that a `NOT NULL` violation stays reportable, but nothing was catching it, so it would have rolled back the whole run.
+
+## What a review pass afterwards found
+
+All nine tasks were green, and a read-through still surfaced four defects the suite could not see. Each is now covered by a test that fails without the fix.
+
+| Defect | Why the suite missed it |
+| --- | --- |
+| `consolidate(errors=...)` consumed the iterable twice, once to count and once to store, so a generator produced the right `records_read` with an empty error list. The run exited 0 having silently discarded every unparseable record. | The CLI passes a list, and so did every test. |
+| Suppression reasons were inferred by scanning all outcomes, including rejected and suppressed ones — records that by definition wrote nothing. A refusal mid-run made a later suppression report a duplicate inside this file when the clash was with a previous run. | No test combined a rejection and a suppression on the same `(seller, id)`. |
+| `begin`, `commit` and the read methods issued bare `execute()` calls, so an unusable or locked database surfaced a `sqlite3` traceback instead of the documented exit code 2. | The existing boundary test is static: it checks that `cli.py` does not *import* `sqlite3`, which says nothing about what escapes at run time. |
+| `apply()` trusted `PRAGMA user_version`. A file claiming version 1 without the `D5` indexes ingested all 269 records, suppressed nothing, and exited 0 — the core requirement absent from a run reporting success. | Every test reached version 1 by running the migration, which does create the indexes. |
+
+The pattern is the same in all four: the tests exercised the paths the code takes on the supplied fixture. Three of the four need an input the fixture cannot contain, and the fourth needs a database in a state no correct run produces.
 
 Ordered implementation plan. Each task names what proves it done. Semantics come from [`DECISIONS.md`](DECISIONS.md) (`D1`–`D11`), structure from [`DESIGN.md`](DESIGN.md) (`DS1`–`DS9`).
 

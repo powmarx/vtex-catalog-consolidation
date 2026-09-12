@@ -83,7 +83,7 @@ set PYTHONPATH=src
 python -m unittest discover -s tests
 ```
 
-233 tests, in two kinds.
+249 tests, in two kinds.
 
 `tests/test_acceptance.py` asserts the expected-outcome table from `docs/DECISIONS.md`, measured before any code existed — a contract, not a description of what the code happens to do.
 
@@ -137,7 +137,7 @@ scripts/verify_docs_selftest.py     proves that verifier can fail
 scripts/generate_fixture.py         synthetic catalogs for situations the supplied file lacks
 scripts/analyse_merge_threshold.py  reproduces the D6 evidence
 src/catalog_consolidation/
-  normalize.py                      the match key (D1). Imports nothing but unicodedata
+  normalize.py                      the match key (D1). unicodedata and a type alias
   source.py                         reads the input, collects per-record errors (D7)
   migration.py                      the schema change (D3, D5), idempotent
   repository.py                     all SQL. The only module importing sqlite3
@@ -167,7 +167,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 35 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 39 mutations, each must be caught
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one

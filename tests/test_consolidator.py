@@ -445,6 +445,95 @@ class TestReportShape(unittest.TestCase):
         self.assertEqual(report.links_created, 0)
         self.assertEqual(report.exit_code(), 0)
 
+    def test_load_errors_given_as_a_generator_are_not_dropped(self):
+        """`errors` is typed `Iterable`, and an earlier version consumed it twice.
+
+        Counting the errors exhausted the generator, so the count was right and the list
+        empty: the run reported the correct `records_read`, listed no failures, and
+        exited 0 having discarded every unparseable record. The CLI passes a list, so
+        nothing else in the suite would have caught it.
+        """
+        repo = FakeRepository(CATALOG)
+        errors = (RecordError(i, "missing Name") for i in (7, 8))
+        report = consolidate([entry(0, "A", "Smartphone Galaxy S23", "Samsung")], repo, errors=errors)
+        self.assertEqual(report.records_read, 3)
+        self.assertEqual(report.failed, 2, "the generator's contents must reach the report")
+        self.assertEqual([e.source_index for e in report.errors], [7, 8])
+        self.assertEqual(report.exit_code(), 1)
+
+
+class TestSuppressionAttribution(unittest.TestCase):
+    """Which constraint refused a link, and whether the clash is inside this run.
+
+    The three cases are worth telling apart, so the inference behind them has to be
+    sound: it may only consider rows this run actually wrote.
+    """
+
+    def test_a_clash_with_an_earlier_run_is_named_as_such(self):
+        repo = FakeRepository(CATALOG)
+        repo.listings.add(("MegaStore", "from-last-time"))
+        report = consolidate(
+            [entry(0, "MegaStore", "Smartphone Galaxy S23", "Samsung", entry_id="from-last-time")],
+            repo,
+        )
+        self.assertEqual(report.suppressed, 1)
+        self.assertIn("from an earlier run", report.outcomes[0].detail)
+
+    def test_a_rejected_record_is_not_mistaken_for_a_written_one(self):
+        """A refusal writes nothing, so it cannot be the row a later link clashes with.
+
+        An earlier version inferred the reason by scanning every outcome, `REJECTED` and
+        `SUPPRESSED` included. A record refused mid-run therefore made a later
+        suppression on the same `(seller, id)` report a duplicate inside this file, when
+        the row it actually clashed with came from a previous run -- pointing whoever
+        reads the findings at the wrong file.
+        """
+
+        class RefuseFirstLink(FakeRepository):
+            def __init__(self, products):
+                super().__init__(products)
+                self.calls = 0
+
+            def link(self, seller_name, product_id, seller_product_id):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RepositoryIntegrityError("CHECK constraint failed: contrived")
+                return super().link(seller_name, product_id, seller_product_id)
+
+        repo = RefuseFirstLink(CATALOG)
+        # Already in the database from a previous run, under the same listing id the
+        # refused record carries.
+        repo.listings.add(("MegaStore", "shared-id"))
+        report = consolidate(
+            [
+                entry(0, "MegaStore", "Smartphone Galaxy S23", "Samsung", entry_id="shared-id"),
+                entry(1, "MegaStore", "Router WiFi 6 TP-Link", "TP-Link", entry_id="shared-id"),
+            ],
+            repo,
+        )
+        self.assertEqual(report.failed, 1)
+        self.assertEqual(report.suppressed, 1)
+        detail = report.outcomes[1].detail
+        self.assertIn("from an earlier run", detail)
+        self.assertNotIn("already submitted this SellerProductId", detail)
+
+    def test_a_suppressed_record_is_not_mistaken_for_a_written_one(self):
+        # Same reasoning: the second record wrote nothing, so the third's clash is with
+        # the first, not with the second.
+        repo = FakeRepository(CATALOG)
+        report = consolidate(
+            [
+                entry(0, "MegaStore", "Smartphone Galaxy S23", "Samsung", entry_id="one"),
+                entry(1, "MegaStore", "Smartphone Galaxy S23", "Samsung", entry_id="two"),
+                entry(2, "MegaStore", "Smartphone Galaxy S23", "Samsung", entry_id="three"),
+            ],
+            repo,
+        )
+        self.assertEqual(report.links_created, 1)
+        self.assertEqual(report.suppressed, 2)
+        for outcome in report.outcomes[1:]:
+            self.assertIn("already recorded against this product", outcome.detail)
+
 
 if __name__ == "__main__":
     unittest.main()

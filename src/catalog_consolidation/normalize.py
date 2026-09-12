@@ -1,9 +1,10 @@
 """The match key. See D1 in docs/DECISIONS.md.
 
-This module imports nothing but the standard library's `unicodedata`, which is what
-makes the matching rule testable without a database. It is the highest-risk logic in
-the project: the entire consolidation turns on whether two differently-spelled names
-are judged to be the same product.
+The only imports are the standard library's `unicodedata` and the `MatchKey` type alias
+from `models.py` -- no I/O, no database, nothing that needs setting up. That is what
+makes the matching rule testable in isolation. It is the highest-risk logic in the
+project: the entire consolidation turns on whether two differently-spelled names are
+judged to be the same product.
 
 The rule, and why each step is there:
 
