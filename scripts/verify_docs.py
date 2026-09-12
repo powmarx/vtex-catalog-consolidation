@@ -833,6 +833,63 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.states("post-migration DDL bumps user_version", migrated, "PRAGMA user_version = 1")
     c.check("post-migration DDL leaves Product unchanged", "Product" in migrated and "-- unchanged" in migrated)
 
+    # MERGE-ANALYSIS.md is the evidence behind D6, the decision most open to challenge.
+    # Its counter-examples are real catalog rows, so they are checked against the data
+    # rather than trusted.
+    c.begin("docs/merge analysis (D6)")
+    merge = docs.get("MERGE-ANALYSIS", "")
+    c.check("MERGE-ANALYSIS exists", bool(merge))
+    c.states("D6 cites the analysis", decisions, "MERGE-ANALYSIS.md")
+    c.states("D6 states the threshold encodes name length", decisions, "encodes *name length*, not similarity")
+    c.states("the analysis names the quantisation", merge, "quantised by name length")
+    c.states("the analysis states merging costs nothing here", merge, "cost nothing measurable")
+    c.states("the analysis records the asymmetry", merge, "Asymmetric failure")
+
+    conn = open_catalog()
+    products = list(conn.execute("SELECT Id, Name, Brand FROM Product"))
+    conn.close()
+    by_brand: dict[str, list[tuple]] = collections.defaultdict(list)
+    for product in products:
+        if product[2]:
+            by_brand[_normalize(product[2])].append(product)
+
+    def overlap(left: str, right: str) -> float:
+        a, b = set(_normalize(left).split()), set(_normalize(right).split())
+        return len(a & b) / len(a | b) if a and b else 0.0
+
+    scored = [
+        (overlap(g[i][1], g[j][1]), g[i][1], g[j][1])
+        for g in by_brand.values()
+        for i in range(len(g))
+        for j in range(i + 1, len(g))
+    ]
+    above = [s for s in scored if s[0] > 0.5]
+    at_half = [s for s in scored if s[0] == 0.5]
+    c.equals("no distinct catalog pair scores above the threshold", len(above), 0)
+    c.equals("exactly four catalog pairs sit on the threshold", len(at_half), 4)
+    # Each counter-example must appear as a table row AND be one of the measured pairs.
+    # Checking only that the name appears somewhere is too weak: the names occur twice in
+    # the document, so a single edit leaves one copy behind and the check still passes.
+    measured_names = {s[1] for s in at_half} | {s[2] for s in at_half}
+    for name in ("Tennis Racket Adult", "Hockey Stick Ice", "Colander Stainless Steel", "Nightstand Set of 2"):
+        c.check(
+            f"{name!r} is a real measured pair",
+            name in measured_names,
+            f"{name!r} is quoted as a counter-example but does not score 0.5 against a same-brand peer",
+        )
+        c.check(
+            f"{name!r} appears as a table row in the analysis",
+            f"| `{name}` |" in merge,
+            "quoted in prose but not tabulated, or the wording drifted",
+        )
+    # The quantisation table must be arithmetically right, asserted as the whole row so a
+    # single altered cell cannot hide behind the same number appearing elsewhere.
+    scores = [f"{(n - 1) / (2 * n - (n - 1)):.3f}" for n in range(2, 8)]
+    c.equals("quantisation arithmetic", scores, ["0.333", "0.500", "0.600", "0.667", "0.714", "0.750"])
+    expected_row = "| score | 0.333 | **0.500** | 0.600 | 0.667 | 0.714 | 0.750 |"
+    c.states("the analysis tabulates the quantisation exactly", merge, expected_row)
+    c.states("D6 links the analysis as markdown", decisions, "[`MERGE-ANALYSIS.md`](MERGE-ANALYSIS.md)")
+
     c.begin("docs/formatting")
     for name, text in docs.items():
         c.check(f"{name}: no trailing whitespace", all(l == l.rstrip() for l in text.split("\n")))

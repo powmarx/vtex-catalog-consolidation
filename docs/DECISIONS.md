@@ -117,10 +117,17 @@ Enforcement is by constraint plus `INSERT ... ON CONFLICT DO NOTHING` rather tha
 
 This is a known, documented false negative rather than a silent one.
 
+**The obvious objection is that `D11` already finds these two, so it should merge them.** It was measured rather than argued away, and the measurement is decisive: the candidate rule's threshold encodes *name length*, not similarity. Jaccard overlap on token sets is quantised, so "differs by exactly one token" scores 0.500 at three tokens and 0.600 at four — and the catalog contains four pairs of genuinely different products sitting exactly on 0.500, including `Colander Stainless Steel` against `Ladle Stainless Steel` and `Tennis Racket Adult` against `Tennis Racket Bag`. Every one differs in a single token, and in every case that token is the product-type word, exactly like `roteador`/`router`.
+
+Auto-merging would therefore be correct on this file and wrong on a plausible variant of it, for reasons unrelated to the products. Had the catalog named the router in three tokens, the true merge would be missed; had it named the colander in four, a colander would be merged into a ladle.
+
+Full evidence, counterfactuals and the asymmetry of the two failure modes: [`MERGE-ANALYSIS.md`](MERGE-ANALYSIS.md), reproducible via `scripts/analyse_merge_threshold.py`.
+
 Rejected alternatives, and why:
 
 - **Hardcoded synonym map** (`roteador`→`router`). Would catch exactly these two cases and nothing else. It is fitted to the test file, which is worse than a stated limitation.
 - **Brand-plus-model-token matching.** Would catch both, but `TP-Link` alone matches two different catalog products, so the rule needs a notion of which token is the distinctive one. That is a heuristic with real false-positive risk, and merging two genuinely different products is a worse failure than leaving a duplicate.
+- **Promoting the `D11` candidate rule to an automatic merge.** Rejected on the measurement above, not on caution. Notably it would cost nothing on this file — no link is lost, and the catalog would hold 976 products with zero known duplicates — so the case against it had to be made on the metric rather than on a price that is not there.
 
 What a production system would do instead: resolve on a real product identifier (GTIN/EAN), or run locale-aware matching with a translation service, or route low-confidence candidates to human review rather than deciding automatically. All three need infrastructure the assessment does not provide.
 

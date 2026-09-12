@@ -106,10 +106,12 @@ data/catalog.db          SQLite catalog as supplied (975 products) - pristine, n
 data/ProductEntry.json   seller submissions as supplied (269 records, 20 sellers)
 docs/SCHEMA.md           database and JSON schemas as supplied, and after migration
 docs/DATA-ISSUES.md      every defect and trap found in the two artifacts, and the response
+docs/MERGE-ANALYSIS.md   why the near-miss rule reports instead of merging (the D6 evidence)
 docs/DECISIONS.md        what was chosen and why, with the tradeoff each decision accepts
 docs/DESIGN.md           how it is built: module boundaries, migration, CLI, test strategy
 docs/TASKS.md            ordered implementation plan with per-step verification
 scripts/verify_docs.py   re-measures the artifacts and checks the docs still tell the truth
+scripts/analyse_merge_threshold.py  reproduces the D6 evidence
 src/catalog_consolidation/
 tests/
 ```
@@ -134,7 +136,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 21 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 24 mutations, each must be caught
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one

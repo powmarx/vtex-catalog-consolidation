@@ -31,12 +31,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def patch(root: Path, rel: str, old: str, new: str) -> None:
+def patch(root: Path, rel: str, old: str, new: str, *, count: int = 1) -> None:
+    """Replace `old` with `new` in a file.
+
+    `count=-1` replaces every occurrence. That matters: three mutations initially went
+    undetected because they changed only the first of two copies, and the surviving copy
+    kept the corresponding check green. The checks were then tightened as well, but a
+    mutation that leaves the defect half-applied is not testing what it claims to.
+    """
     path = root / rel
     text = path.read_text(encoding="utf-8")
     if old not in text:
         raise AssertionError(f"anchor not found in {rel}: {old[:60]!r}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="")
+    path.write_text(text.replace(old, new) if count < 0 else text.replace(old, new, count), encoding="utf-8", newline="")
 
 
 def mutate_catalog(root: Path) -> None:
@@ -70,6 +77,9 @@ MUTATIONS: list[tuple[str, object]] = [
     ("drop D11's candidate score evidence", lambda r: patch(r, "docs/DECISIONS.md", "| 0.667 | yes |", "| high | yes |")),
     ("remove DS9's threading rationale", lambda r: patch(r, "docs/DESIGN.md", "the GIL prevents real parallelism", "it runs in parallel")),
     ("un-gitignore the reports directory", lambda r: patch(r, ".gitignore", "reports/", "report-output/")),
+    ("invent a counter-example not in the catalog", lambda r: patch(r, "docs/MERGE-ANALYSIS.md", "Hockey Stick Ice", "Cricket Bat Willow", count=-1)),
+    ("get the quantisation arithmetic wrong", lambda r: patch(r, "docs/MERGE-ANALYSIS.md", "| score | 0.333 | **0.500** | 0.600 |", "| score | 0.333 | **0.500** | 0.650 |")),
+    ("drop D6's link to the analysis", lambda r: patch(r, "docs/DECISIONS.md", "MERGE-ANALYSIS.md", "MISSING.md", count=-1)),
     ("leave a decision defined but unreferenced", lambda r: patch(r, "docs/DESIGN.md", "`D11`", "`D99`")),
     ("state the wrong DDL in SCHEMA", lambda r: patch(r, "docs/SCHEMA.md", "SellerProductId INTEGER NOT NULL", "SellerProductId TEXT NOT NULL")),
     ("drop a path from the README layout", lambda r: patch(r, "README.md", "docs/DATA-ISSUES.md      every defect", "docs/REMOVED.md         every defect")),
