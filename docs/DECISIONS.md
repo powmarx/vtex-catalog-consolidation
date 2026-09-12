@@ -68,11 +68,13 @@ The column is `INTEGER NOT NULL` and every incoming `Id` is a UUID string.
 
 An earlier version of this decision claimed the data could not be loaded without widening the column. That was wrong, and the correction is worth recording. SQLite uses type affinity rather than strict typing: a non-numeric string offered to an `INTEGER` column is stored unchanged. Verified — inserting `a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d` succeeds and `typeof()` reports `text`. Ingestion would work with no migration at all, quietly storing text in a column declared integer.
 
-The migration is still made, for two measured reasons that survive the correction.
+**The migration is therefore defensive, and changes nothing observable on the supplied data.** That should be said before the argument for it, not after. Measured: of the 269 incoming ids, **none** is numeric in any form — not digits, not leading zeros, not `1e3`, not whitespace-padded. An unmigrated `INTEGER` column would alter **0 of 269**. Without the migration, every id stores correctly as text in a column that merely *declares* the wrong type.
 
-**Silent coercion mangles numeric-looking identifiers.** On an `INTEGER` column, affinity converts any string that looks numeric:
+So this is not a fix for a present failure. It is made for two reasons, both prospective.
 
-| Seller sends | `INTEGER` column stores | `TEXT` column stores |
+**An `INTEGER` column silently rewrites numeric-looking identifiers.** What it would do, given input this schema plainly invites:
+
+| Seller sends | `INTEGER` column would store | `TEXT` column stores |
 | --- | --- | --- |
 | `007` | `7` | `007` |
 | `0012` | `12` | `0012` |
@@ -80,11 +82,11 @@ The migration is still made, for two measured reasons that survive the correctio
 | ` 42` | `42` | ` 42` |
 | `a1b2c3d4-e5f6` | `a1b2c3d4-e5f6` | `a1b2c3d4-e5f6` |
 
-A seller SKU carrying leading zeros or padding is irreversibly altered. An identifier is an opaque token; a column that rewrites it is the wrong column.
+A seller SKU carrying leading zeros or padding would be irreversibly altered. An identifier is an opaque token, and a column that rewrites it is the wrong column — regardless of whether today's file happens to trip it.
 
-**Worse, coercion breaks `D5`.** Because `007` and `7` both collapse to `7`, two genuinely different seller listings collide on `UNIQUE(SellerName, SellerProductId)` and one is silently discarded as a duplicate. Verified: inserting `007` then `7` into a unique-indexed `INTEGER` column raises a constraint violation, while a `TEXT` column stores both. The idempotency guarantee is only sound if the column preserves what it is given.
+**The same coercion would also undermine `D5`.** `007` and `7` both collapse to `7`, so two genuinely different listings would collide on `UNIQUE(SellerName, SellerProductId)` and one would be discarded as a duplicate. Verified by execution: inserting `007` then `7` into a unique-indexed `INTEGER` column raises a constraint violation, while a `TEXT` column stores both. The idempotency guarantee is only sound if the column preserves what it is given.
 
-None of this bites on the supplied file, where every `Id` is a non-numeric UUID. The migration is a correctness guarantee for the identifiers this schema invites rather than a fix for a present failure, which is a weaker but honest justification.
+Whether that justifies a schema change is a fair question, since the answer on this data is "it changes nothing". The case for doing it anyway: the column exists to hold somebody else's identifier, the cost is one migration on an empty table, and the failure it prevents is silent. `scripts/generate_fixture.py --scenario numeric-ids` produces the input that makes it bite, and `tests/test_generated.py` asserts those ids survive — so the claim is demonstrable rather than merely argued.
 
 Tradeoff: rejected the surrogate-integer alternative because it preserves the original schema at the cost of losing traceability back to the seller's own identifier, which is the one thing that column exists to hold.
 

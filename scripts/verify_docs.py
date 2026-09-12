@@ -778,7 +778,24 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     # D3's premise was wrong once. Pin both the correction and its replacement reasoning.
     c.states("D3 admits the earlier premise was wrong", decisions, "That was wrong")
     c.states("D3 gives the affinity reason instead", decisions, "type affinity rather than strict typing")
-    c.states("D3 names the collision consequence", decisions, "breaks `D5`")
+    c.states("D3 names the collision consequence", decisions, "undermine `D5`")
+
+    # D3 argues from input the supplied file does not contain, so it must say so up front
+    # rather than in a trailing caveat. The count is measured, not asserted.
+    conn3 = open_catalog()
+    conn3.close()
+    supplied_ids = [e["Id"] for e in json.loads(ENTRIES.read_text(encoding="utf-8"))]
+    numeric = [i for i in supplied_ids if re.fullmatch(r"\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*", i)]
+    c.equals("no supplied id is numeric in any form", len(numeric), 0)
+    c.states(
+        "D3 states the measured count of affected records",
+        decisions,
+        f"would alter **0 of {len(supplied_ids)}**",
+    )
+    c.states("D3 calls the migration defensive before arguing for it", decisions, "migration is therefore defensive")
+    c.states("D3 frames the coercion table as prospective", decisions, "would store")
+    c.states("D3 concedes the change is questionable on this data", decisions, "is a fair question")
+    c.states("D3 points at the fixture that makes it bite", decisions, "--scenario numeric-ids")
 
     # DS8 exists because a pragma silently no-ops. Pin the specifics.
     c.states("DS8 states the pragma is ignored in a transaction", design, "silently ignored inside a transaction")
