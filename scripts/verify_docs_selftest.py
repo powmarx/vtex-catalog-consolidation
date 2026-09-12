@@ -92,6 +92,7 @@ MUTATIONS: list[tuple[str, object]] = [
     ("remove the reading order entirely", lambda r: patch(r, "README.md", "## Where to start", "## Documents")),
     ("misstate the English/Portuguese split", lambda r: patch(r, "docs/DECISIONS.md", "Of 269 input records, 266 are English-named", "Of 269 input records, 240 are English-named")),
     ("drop D6's production-inversion point", lambda r: patch(r, "docs/DECISIONS.md", "inverted relative to production", "similar to production")),
+    ("reintroduce a claim about the reader's business", lambda r: patch(r, "docs/DECISIONS.md", "That ratio is an artifact of the exercise", "VTEX operates in Brazil, so that ratio is an artifact of the exercise")),
     ("point a translation pair at the wrong catalog row", lambda r: patch(r, "docs/DECISIONS.md", "`Roteador`/`Router` (#21)", "`Roteador`/`Router` (#210)")),
     ("modify catalog.db", mutate_catalog),
     ("modify ProductEntry.json", mutate_entries),

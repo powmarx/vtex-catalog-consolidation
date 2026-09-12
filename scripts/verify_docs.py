@@ -998,6 +998,19 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.states("D6 states the inversion", decisions, "inverted relative to production")
     c.states("D6 notes the graded difficulty", decisions, "graded in difficulty on purpose")
 
+    # D6 once argued from "VTEX operates in Brazil", which is wrong -- the platform serves
+    # retailers across dozens of countries -- and was a claim about the reader's own
+    # business asserted as fact in a document addressed to them. The argument is stronger
+    # made from the problem domain, and needs no such premise. Guard against reintroducing
+    # one.
+    c.states("D6 argues from the domain, not from the reader's company", decisions, "artifact of the exercise, not of the domain")
+    for name, text in docs.items():
+        c.check(
+            f"{name} asserts nothing about VTEX's operations",
+            not re.search(r"VTEX (operates|is based|is a Brazilian|only operates)", text),
+            "a claim about the reader's business does not belong in a submission to them",
+        )
+
     c.begin("docs/formatting")
     for name, text in docs.items():
         c.check(f"{name}: no trailing whitespace", all(l == l.rstrip() for l in text.split("\n")))

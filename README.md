@@ -167,7 +167,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 34 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 35 mutations, each must be caught
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one
