@@ -890,6 +890,50 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.states("the analysis tabulates the quantisation exactly", merge, expected_row)
     c.states("D6 links the analysis as markdown", decisions, "[`MERGE-ANALYSIS.md`](MERGE-ANALYSIS.md)")
 
+    # D6 claims the data is inverted relative to production: an all-English catalog with
+    # three planted Portuguese outliers. Both halves are measurable.
+    c.begin("docs/language distribution (D6)")
+    conn2 = open_catalog()
+    catalog_names = [r[0] for r in conn2.execute("SELECT Name FROM Product")]
+    conn2.close()
+    input_names = [e["Name"] for e in json.loads(ENTRIES.read_text(encoding="utf-8"))]
+
+    # Only vocabulary that differs between the two languages. Words spelled identically --
+    # camera, monitor, smartphone, mouse, notebook, tablet -- prove nothing, and including
+    # them in a first pass produced a wrong answer.
+    portuguese = {
+        "roteador", "processador", "teclado", "geladeira", "liquidificador", "cafeteira",
+        "ventilador", "aspirador", "cadeira", "armario", "colchao", "travesseiro", "panela",
+        "garrafa", "mochila", "carteira", "relogio", "oculos", "bicicleta", "furadeira",
+        "lampada", "carregador", "bateria", "impressora", "celular", "televisao", "forno",
+    }
+    has_pt = lambda name: bool(set(_normalize(name).split()) & portuguese)
+
+    c.equals("all 975 catalog names are English", sum(1 for n in catalog_names if has_pt(n)), 0)
+    c.equals("no catalog name carries an accent", sum(1 for n in catalog_names if not n.isascii()), 0)
+    c.equals("two input names are distinctively Portuguese", sum(1 for n in input_names if has_pt(n)), 2)
+    c.equals("one input name carries an accent", sum(1 for n in input_names if not n.isascii()), 1)
+    english = len(input_names) - sum(1 for n in input_names if has_pt(n) or not n.isascii())
+    c.equals("so 266 of 269 records are English-named", english, 266)
+    # And the prose must state the measured figure, not merely a plausible one. Checking
+    # the data alone left the sentence free to drift, which a mutation exposed.
+    c.states(
+        "D6 states the measured split",
+        decisions,
+        f"Of {len(input_names)} input records, {english} are English-named",
+    )
+    c.states("D6 states the catalog is wholly English", decisions, f"all {len(catalog_names)} catalog names are English")
+    for foreign, native, pid in (
+        ("Câmera Canon EOS R6", "Camera Canon EOS R6", 18),
+        ("Roteador WiFi 6 TP-Link", "Router WiFi 6 TP-Link", 21),
+        ("Processador AMD Ryzen 9 7950X", "Processor AMD Ryzen 9 7950X", 28),
+    ):
+        c.check(f"{foreign!r} is in the input", foreign in input_names)
+        c.check(f"its twin {native!r} is catalog #{pid}", native in catalog_names)
+        c.states(f"D6 cites the {native.split()[0]} pair", decisions, f"(#{pid})")
+    c.states("D6 states the inversion", decisions, "inverted relative to production")
+    c.states("D6 notes the graded difficulty", decisions, "graded in difficulty on purpose")
+
     c.begin("docs/formatting")
     for name, text in docs.items():
         c.check(f"{name}: no trailing whitespace", all(l == l.rstrip() for l in text.split("\n")))
