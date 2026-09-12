@@ -850,6 +850,53 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.states("post-migration DDL bumps user_version", migrated, "PRAGMA user_version = 1")
     c.check("post-migration DDL leaves Product unchanged", "Product" in migrated and "-- unchanged" in migrated)
 
+    # The after-state table used to give only row counts, so a reader could carry the
+    # section-1 column figures across the ingest unchanged. It now states which move and
+    # why, and those deltas are measured by running the consolidation.
+    c.begin("docs/post-ingest column figures")
+    import shutil as _shutil
+    import tempfile as _tempfile
+
+    sys.path.insert(0, str(ROOT / "src"))
+    from catalog_consolidation import cli as _cli  # noqa: PLC0415
+
+    workspace = Path(_tempfile.mkdtemp())
+    try:
+        working = workspace / "catalog.db"
+        _shutil.copy(CATALOG, working)
+        import contextlib as _contextlib
+        import io as _io
+
+        with _contextlib.redirect_stdout(_io.StringIO()):
+            _cli.main(["--database", str(working), "--input", str(ENTRIES), "--no-report-file"])
+        after = sqlite3.connect(f"file:{working.as_posix()}?mode=ro", uri=True)
+        try:
+            one = lambda sql: after.execute(sql).fetchone()[0]
+            c.equals("Product rows after ingest", one("SELECT count(*) FROM Product"), 978)
+            c.equals("distinct Brand after ingest", one("SELECT count(DISTINCT Brand) FROM Product"), 640)
+            c.equals("Brand nulls after ingest", one("SELECT count(*) FROM Product WHERE Brand IS NULL"), 119)
+            c.equals("distinct Category after ingest", one("SELECT count(DISTINCT Category) FROM Product"), 43)
+            c.equals("Category nulls after ingest", one("SELECT count(*) FROM Product WHERE Category IS NULL"), 34)
+            original = after.execute(
+                "SELECT Id, Name, Brand, Category FROM Product WHERE Id <= 975 ORDER BY Id"
+            ).fetchall()
+        finally:
+            after.close()
+        pristine = open_catalog()
+        try:
+            baseline = pristine.execute(
+                "SELECT Id, Name, Brand, Category FROM Product ORDER BY Id"
+            ).fetchall()
+        finally:
+            pristine.close()
+        c.check("the 975 original rows are byte-identical after ingest", original == baseline)
+    finally:
+        _shutil.rmtree(workspace, ignore_errors=True)
+
+    c.states("SCHEMA tabulates the Brand delta", schema, "| Distinct `Brand` values | 639 | 640 |")
+    c.states("SCHEMA states nothing existing changes", schema, "Nothing in the existing 975 rows changes")
+    c.states("SCHEMA attributes the Brand increment", schema, "comes entirely from the injection payload")
+
     # MERGE-ANALYSIS.md is the evidence behind D6, the decision most open to challenge.
     # Its counter-examples are real catalog rows, so they are checked against the data
     # rather than trusted.

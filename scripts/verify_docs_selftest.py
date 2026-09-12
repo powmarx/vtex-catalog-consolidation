@@ -84,6 +84,8 @@ MUTATIONS: list[tuple[str, object]] = [
     ("get the quantisation arithmetic wrong", lambda r: patch(r, "docs/MERGE-ANALYSIS.md", "| score | 0.333 | **0.500** | 0.600 |", "| score | 0.333 | **0.500** | 0.650 |")),
     ("drop D6's link to the analysis", lambda r: patch(r, "docs/DECISIONS.md", "MERGE-ANALYSIS.md", "MISSING.md", count=-1)),
     ("leave a decision defined but unreferenced", lambda r: patch(r, "docs/DESIGN.md", "`D11`", "`D99`")),
+    ("misstate the post-ingest Brand delta", lambda r: patch(r, "docs/SCHEMA.md", "| Distinct `Brand` values | 639 | 640 |", "| Distinct `Brand` values | 639 | 645 |")),
+    ("claim existing rows are updated", lambda r: patch(r, "docs/SCHEMA.md", "Nothing in the existing 975 rows changes", "Existing rows are refreshed from the input")),
     ("state the wrong DDL in SCHEMA", lambda r: patch(r, "docs/SCHEMA.md", "SellerProductId INTEGER NOT NULL", "SellerProductId TEXT NOT NULL")),
     ("drop a document from the reading order", lambda r: patch(r, "README.md", "[`docs/DATA-ISSUES.md`](docs/DATA-ISSUES.md)", "`docs/DATA-ISSUES.md`")),
     ("point the reading order at a missing document", lambda r: patch(r, "README.md", "](docs/SCHEMA.md)", "](docs/SCHEMAS.md)")),

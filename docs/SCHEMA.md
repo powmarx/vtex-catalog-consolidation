@@ -198,5 +198,13 @@ PRAGMA user_version = 1;
 | `SellerProduct` rows | 0 | 257 |
 | `user_version` | 0 | 1 |
 | Unique indexes | 0 | 2 |
+| Distinct `Brand` values | 639 | 640 |
+| `Brand` nulls | 119 | 119 |
+| Distinct `Category` values | 43 | 43 |
+| `Category` nulls | 34 | 34 |
 
 New product ids are 976, 977, 978, following `sqlite_sequence`. Full accounting of the 269 input records is in the expected-outcome table in `DECISIONS.md`.
+
+**Nothing in the existing 975 rows changes.** They are byte-identical after ingest, per `D2` — no `Name`, `Brand` or `Category` is ever updated by an incoming record, so the per-column figures in section 1 remain true of those rows.
+
+The whole-table figures shift only because three rows are appended. `Brand` gains one distinct value: `TP-Link` and `AMD` already existed in the catalog, so the two translation products add nothing, and the increment comes entirely from the injection payload's brand `TestBrand'; SELECT 1; --`. No count of nulls moves, because all three new products carry a brand and a category, and all three categories were already in use.
