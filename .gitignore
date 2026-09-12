@@ -5,7 +5,16 @@ data/*.working.db
 data/catalog.local.db
 
 # Per-run findings reports (D11). Run artifacts, not source.
-reports/
+#
+# `reports/*` rather than `reports/`, because git cannot re-include a file whose parent
+# directory is excluded -- with `reports/` the negation below is silently inert.
+reports/*
+
+# One exception. Ignoring the whole directory left D11's output invisible to anyone
+# reading the repository rather than running it, so a single report from a real run is
+# committed as an example. verify_docs.py checks its numbers against the same
+# measurement as the rest of the docs, so it cannot go stale unnoticed.
+!reports/example-ProductEntry.md
 
 # Generated fixtures. Reproducible from scripts/generate_fixture.py with a seed,
 # so there is nothing to preserve.

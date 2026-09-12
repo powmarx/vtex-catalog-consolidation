@@ -76,6 +76,8 @@ Exit codes: `0` success, `1` the run finished but at least one record could not 
 
 Running the same file twice is safe: the second run adds nothing.
 
+Each run writes both a JSON and a Markdown findings report (`D11`). Those are run artifacts and `reports/` is gitignored, so one from a real run is committed as an example: [`reports/example-ProductEntry.md`](reports/example-ProductEntry.md). It is the answer to "what did the system decide, and what did it decline to do" — 12 suppressions broken down by which constraint caught them, 2 review candidates it refused to merge, and every field value it declined to overwrite. `verify_docs.py` checks its numbers against the artifacts, so it cannot drift. The JSON is not committed: at 83 KB it is mostly identifiers, and `--report json` prints it.
+
 ### Tests
 
 ```
@@ -167,7 +169,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 39 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 43 mutations, each must be caught (~2 min)
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one

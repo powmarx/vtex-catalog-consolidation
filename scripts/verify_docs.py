@@ -42,6 +42,10 @@ DOCS = ROOT / "docs"
 CATALOG = DATA / "catalog.db"
 ENTRIES = DATA / "ProductEntry.json"
 
+# `reports/` holds per-run artifacts and is gitignored. This one file is committed, so
+# that D11's output is visible without running the tool. See .gitignore.
+EXAMPLE_REPORT = "example-ProductEntry.md"
+
 # sha256 of the artifacts as published by VTEX. These must never change.
 CATALOG_SHA = "733ff1d9cc20253da48a9f8b33d7241503e4a06e7c68f65f7fa00ef14466c404"
 ENTRIES_SHA = "1b0c861fe568c19e8b1cebcf774ee3d1d95baf8c42e35129e4ae806ece04b8f6"
@@ -550,6 +554,41 @@ def check_cross(c: Checker, entries: list[dict], products: list[tuple]) -> None:
         ("sellers", 20),
     ):
         c.equals(f"expected outcome: {field}", sim[field], expected)
+
+    # `reports/` is gitignored because per-run findings are run artifacts, but that left
+    # D11's actual output invisible to anyone reading the repository rather than running
+    # it. One report is committed as an example, and a committed sample of generated
+    # output is exactly the kind of thing that rots quietly -- so its summary is checked
+    # against the same measurement as everything else.
+    c.begin("cross/example findings report")
+    example = ROOT / "reports" / EXAMPLE_REPORT
+    if not c.check(f"{EXAMPLE_REPORT} is committed", example.exists(), f"not found: {example}"):
+        return
+    report_text = example.read_text(encoding="utf-8")
+    for label, value in (
+        ("Records read", sim["read"]),
+        ("Matched an existing product", sim["matched"]),
+        ("New products inserted", sim["inserted"]),
+        ("Links created", sim["links"]),
+        ("Duplicate listings suppressed", sim["skipped"]),
+        ("Records rejected", 0),
+        ("Distinct sellers linked", sim["sellers"]),
+    ):
+        c.states(f"example report states {label} = {value}", report_text, f"| {label} | {value} |")
+    c.states(
+        "example report states the product count change",
+        report_text,
+        f"| Catalog products | {len(products)} -> {sim['products_after']} |",
+    )
+    c.states("example report shows the suppressed-record detail", report_text, "<details><summary>Every suppressed record</summary>")
+    c.states("example report shows both review candidates", report_text, "| 0.667 |")
+
+    # The collapsed table is the audit trail. An empty or truncated one would still
+    # render, so count its rows rather than trusting the block is there.
+    _, _, after = report_text.partition("<details><summary>Every suppressed record</summary>")
+    collapsed, _, _ = after.partition("</details>")
+    rows = [l for l in collapsed.splitlines() if l.startswith("| ") and not set(l) <= set("| -")]
+    c.equals("example report lists every suppressed record", len(rows) - 1, sim["skipped"])
     listings = {(r["SellerName"], r["Id"]) for r in entries}
     offers = {(r["SellerName"], pid) for r, pid in sim["resolved"]}
     c.equals("D5: UNIQUE(SellerName, SellerProductId) alone suppresses 1", len(entries) - len(listings), 1)
@@ -836,7 +875,22 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
     c.states("DS9 requires writing after commit", design, "written only after `COMMIT` returns")
     c.states("DS9 names the correct scale boundary", design, "a batch boundary")
     c.states("TASKS sequences the report as task 9", tasks, "## 9. Findings report")
-    c.check("reports/ is gitignored", "reports/" in (ROOT / ".gitignore").read_text(encoding="utf-8"))
+    # Read the rules, not the file text: a substring test passes on a mention in a
+    # comment. And the exemption for the committed example is order- and form-sensitive,
+    # so check the form rather than that the words appear somewhere.
+    ignore_rules = [
+        line.strip()
+        for line in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    c.check("per-run reports are gitignored", "reports/*" in ignore_rules, f"rules present: {ignore_rules}")
+    c.check(f"{EXAMPLE_REPORT} is exempt from that", f"!reports/{EXAMPLE_REPORT}" in ignore_rules)
+    c.check(
+        "the reports directory itself is not excluded, which would void the exemption",
+        "reports/" not in ignore_rules,
+        "git cannot re-include a file whose parent directory is excluded, so `reports/` "
+        "makes the negation silently inert",
+    )
 
     # SCHEMA.md reproduces the DDL in two states. Both must be right, and the
     # "as supplied" one must match the live database rather than a memory of it.
