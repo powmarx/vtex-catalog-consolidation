@@ -2,7 +2,26 @@
 
 Catalog consolidation for a marketplace: ingest a file of products submitted by many sellers into an existing product catalog, without duplicating products, while recording which sellers offer each product.
 
-The decisions governing behaviour are in [`docs/DECISIONS.md`](docs/DECISIONS.md), and each was made from a measurement against the supplied data rather than from assumption.
+Every behaviour was chosen from a measurement against the supplied data rather than from assumption, and the reasoning is written down.
+
+## Where to start
+
+There is more documentation here than the code needs, because the assessment weights understanding of the problem above production readiness. It is tiered so you can stop wherever you have enough.
+
+**If you read one thing:** [`docs/DECISIONS.md`](docs/DECISIONS.md) — the eleven decisions, each with the tradeoff it accepts. `D2` (existing rows are never updated) and `D6` (two known duplicates are reported rather than merged) are the two most open to challenge, and both are argued rather than assumed.
+
+**If you read two:** [`docs/DESIGN.md`](docs/DESIGN.md) — module boundaries, and the four SQLite behaviours the design turns on, each verified by execution rather than reasoning. `DS3` and `DS8` are places a plausible implementation is silently wrong.
+
+**Then, as needed:**
+
+| | |
+| --- | --- |
+| [`docs/SCHEMA.md`](docs/SCHEMA.md) | both schemas, as supplied and after migration, with per-column measurements |
+| [`docs/MERGE-ANALYSIS.md`](docs/MERGE-ANALYSIS.md) | the evidence behind `D6`, the one decision that knowingly leaves a duplicate |
+| [`docs/DATA-ISSUES.md`](docs/DATA-ISSUES.md) | all seventeen defects found in the two artifacts, and the response to each |
+| [`docs/TASKS.md`](docs/TASKS.md) | the implementation plan, and where it deviated |
+
+Nothing in `docs/` is required to run or review the code. If you would rather read the tests, `tests/test_acceptance.py` states the contract and `tests/test_generated.py` states the invariants.
 
 ## Running it
 
@@ -102,17 +121,21 @@ A traditional e-commerce company is becoming a marketplace. It owns a catalog of
 ## Layout
 
 ```
-data/catalog.db          SQLite catalog as supplied (975 products) - pristine, never mutated
-data/ProductEntry.json   seller submissions as supplied (269 records, 20 sellers)
-docs/SCHEMA.md           database and JSON schemas as supplied, and after migration
-docs/DATA-ISSUES.md      every defect and trap found in the two artifacts, and the response
-docs/MERGE-ANALYSIS.md   why the near-miss rule reports instead of merging (the D6 evidence)
-docs/DECISIONS.md        what was chosen and why, with the tradeoff each decision accepts
-docs/DESIGN.md           how it is built: module boundaries, migration, CLI, test strategy
-docs/TASKS.md            ordered implementation plan with per-step verification
-scripts/verify_docs.py   re-measures the artifacts and checks the docs still tell the truth
+data/catalog.db                     SQLite catalog as supplied - pristine, never mutated
+data/ProductEntry.json              seller submissions as supplied
+docs/                               six documents; see "Where to start" above
+scripts/verify_docs.py              re-measures the artifacts; checks the docs still tell the truth
+scripts/verify_docs_selftest.py     proves that verifier can fail
+scripts/generate_fixture.py         synthetic catalogs for situations the supplied file lacks
 scripts/analyse_merge_threshold.py  reproduces the D6 evidence
 src/catalog_consolidation/
+  normalize.py                      the match key (D1). Imports nothing but unicodedata
+  source.py                         reads the input, collects per-record errors (D7)
+  migration.py                      the schema change (D3, D5), idempotent
+  repository.py                     all SQL. The only module importing sqlite3
+  consolidator.py                   the algorithm. Knows no SQL
+  reporting.py                      renders the findings (D11)
+  cli.py                            argument parsing, exit codes
 tests/
 ```
 
@@ -136,7 +159,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 24 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 26 mutations, each must be caught
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one

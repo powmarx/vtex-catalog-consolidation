@@ -901,6 +901,20 @@ def check_docs(c: Checker, docs: dict[str, str]) -> None:
         c.check(f"README lists {path}", path in readme)
         c.check(f"{path} exists on disk", (ROOT / path).exists())
 
+    # The reading order is the answer to "there are six documents and I have twenty
+    # minutes". It only works if it is complete, so a new document cannot be added
+    # without being placed in it, and it cannot point at one that has been removed.
+    c.begin("docs/reading order is complete")
+    c.states("README has a reading order", readme, "## Where to start")
+    start, _, rest = readme.partition("## Where to start")
+    reading_order, _, _ = rest.partition("\n## Running it")
+    linked = set(re.findall(r"\]\(docs/([A-Z-]+\.md)\)", reading_order))
+    on_disk = {p.name for p in DOCS.glob("*.md")}
+    c.equals("every document appears in the reading order", sorted(on_disk - linked), [])
+    c.equals("the reading order points at nothing missing", sorted(linked - on_disk), [])
+    c.states("it names the two most challengeable decisions", reading_order, "most open to challenge")
+    c.states("it says the docs are not required to review the code", reading_order, "Nothing in `docs/` is required")
+
 
 # ---------------------------------------------------------------------------
 # entry point
