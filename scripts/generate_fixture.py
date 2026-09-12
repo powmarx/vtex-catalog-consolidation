@@ -382,16 +382,37 @@ def scenario_scale(gen: Generator, products: int, sellers: int, records: int) ->
 def scenario_adversarial(gen: Generator, products: int, sellers: int, records: int) -> Fixture:
     """Everything at once, which is how real ingest arrives."""
     fx = scenario_baseline(gen, products, sellers, records)
+    fx.expect.pop("all_matched", None)  # inherited from baseline and false here
+
+    # Dirty roughly half the clean records. Without this the scenario claimed to be
+    # everything at once while every matched record spelled its product exactly, so the
+    # discarded-value path never ran and the report said "Values not written: None".
+    for record in fx.records:
+        if gen.rng.random() < 0.5:
+            record["Name"] = gen.dirty(record["Name"])
+            if record["Brand"] and gen.rng.random() < 0.4:
+                record["Brand"] = record["Brand"].upper()
+    fx.notes.append("about half the matching records carry a spelling variant")
 
     for builder in (scenario_numeric_ids, scenario_duplicates, scenario_malformed):
         piece = builder(Generator(random.Random(gen.rng.random())), 6, 3, 6)
-        # Re-point the borrowed records at products this fixture actually has.
+        piece_names = {p[0] for p in piece.products}
         for record in piece.records:
-            if record.get("Name") in {p[0] for p in piece.products}:
+            # Borrowed records refer to the piece's own catalog, which this fixture does
+            # not have, so re-point them at a product that exists here.
+            #
+            # Only records that are *not* deliberately malformed. Rewriting a planted
+            # defect cures it: an earlier version overwrote Brand unconditionally and
+            # silently repaired the wrong-type record, so the scenario claimed six
+            # malformations and delivered five.
+            if not _is_deliberately_malformed(record) and record.get("Name") in piece_names:
                 name, brand, category = fx.products[gen.rng.randrange(len(fx.products))]
                 record["Name"], record["Brand"], record["Category"] = name, brand, category
             fx.records.append(record)
         fx.notes.extend(piece.notes)
+        for key, value in piece.expect.items():
+            if key != "all_matched":
+                fx.expect[key] = value
 
     absent = "Adversarial Unseen Widget"
     for seller in gen.sellers(4):
@@ -404,7 +425,24 @@ def scenario_adversarial(gen: Generator, products: int, sellers: int, records: i
     )
     fx.notes.append("plus a within-run new product from 4 sellers and an injection payload")
     gen.rng.shuffle(fx.records)
+
+    # Derived from the shuffled result rather than assumed, so the manifest cannot drift
+    # from the file it describes.
+    fx.expect["expected_rejections"] = sum(1 for r in fx.records if _is_deliberately_malformed(r))
+    fx.expect["absent_name"] = absent
     return fx
+
+
+def _is_deliberately_malformed(record: dict) -> bool:
+    """Whether a record cannot be loaded, so the generator leaves it alone."""
+    for field_name in ("Id", "SellerName", "Name"):
+        value = record.get(field_name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return True
+    return any(
+        record.get(f) is not None and not isinstance(record.get(f), str)
+        for f in ("Id", "SellerName", "Name", "Brand", "Category")
+    )
 
 
 SCENARIOS = {

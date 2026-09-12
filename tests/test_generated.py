@@ -404,6 +404,70 @@ class TestAdversarial(FixtureTestCase):
         self.assertIn(code, (0, 1))
         self.assert_invariants(payload)
 
+    def test_the_manifest_describes_the_file_it_generated(self):
+        """The generator must not claim defects it then cured.
+
+        An earlier version re-pointed borrowed records at local products and overwrote
+        `Brand` unconditionally, which repaired the deliberately wrong-typed record. The
+        scenario advertised six malformations and shipped five.
+        """
+        _, payload = self.run_cli()
+        self.assertEqual(
+            payload["summary"]["failed"],
+            self.manifest["expect"]["expected_rejections"],
+            "the manifest's rejection count must match what the file actually contains",
+        )
+        self.assertNotIn("all_matched", self.manifest["expect"], "inherited from baseline and false here")
+
+    def test_all_planted_malformation_kinds_survive_generation(self):
+        records = self.raw_records()
+        blank_required = [
+            r
+            for r in records
+            if any(
+                r.get(f) is None or (isinstance(r.get(f), str) and not r[f].strip())
+                for f in ("Id", "SellerName", "Name")
+            )
+        ]
+        wrong_type = [
+            r
+            for r in records
+            if any(
+                r.get(f) is not None and not isinstance(r.get(f), str)
+                for f in ("Id", "SellerName", "Name", "Brand", "Category")
+            )
+        ]
+        self.assertTrue(blank_required, "missing-required-field records must survive")
+        self.assertTrue(wrong_type, "the wrong-type record must survive, not be cured")
+
+    def test_a_within_run_new_product_is_inserted_once(self):
+        self.run_cli()
+        absent = self.manifest["expect"]["absent_name"]
+        rows = self.query("SELECT count(*) FROM Product WHERE Name LIKE ?", f"%{absent.split()[1]}%")
+        self.assertGreaterEqual(rows[0][0], 1)
+
+    def test_the_discarded_value_path_is_exercised(self):
+        """`adversarial` must actually contain spelling variants.
+
+        It used to inherit only clean records from `baseline`, so every matched record
+        spelled its product exactly and the report said "Values not written: None" while
+        claiming to be everything at once.
+        """
+        _, payload = self.run_cli()
+        self.assertTrue(payload["discarded_values"], "no spelling variants reached the matcher")
+        fields = {d["field"] for d in payload["discarded_values"]}
+        self.assertIn("Name", fields)
+
+    def test_every_axis_is_present_at_once(self):
+        """The scenario's whole claim, asserted rather than trusted."""
+        _, payload = self.run_cli()
+        summary = payload["summary"]
+        self.assertGreater(summary["matched"], 0, "matches")
+        self.assertGreater(summary["inserted"], 0, "insertions")
+        self.assertGreater(summary["suppressed"], 0, "duplicate suppression")
+        self.assertGreater(summary["failed"], 0, "rejections")
+        self.assertTrue(payload["discarded_values"], "discarded values")
+
     def test_the_injection_payload_is_stored_not_executed(self):
         self.run_cli()
         self.assertEqual(self.query("PRAGMA integrity_check")[0][0], "ok")
