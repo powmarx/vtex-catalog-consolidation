@@ -56,7 +56,7 @@ set PYTHONPATH=src
 python -m unittest discover -s tests
 ```
 
-218 tests, in two kinds.
+231 tests, in two kinds.
 
 `tests/test_acceptance.py` asserts the expected-outcome table from `docs/DECISIONS.md`, measured before any code existed — a contract, not a description of what the code happens to do.
 
@@ -120,7 +120,7 @@ Every figure in `docs/` was produced by measuring the two artifacts. That measur
 reproducible rather than trusted:
 
 ```
-python scripts/verify_docs.py            # 278 checks, non-zero exit on failure
+python scripts/verify_docs.py            # non-zero exit on failure
 python scripts/verify_docs.py -v         # list every check
 python scripts/verify_docs.py --section sqlite
 ```
@@ -134,7 +134,7 @@ not crept back.
 A verifier that cannot fail is worse than none, so its ability to fail is itself tested:
 
 ```
-python scripts/verify_docs_selftest.py   # applies 16 mutations, each must be caught
+python scripts/verify_docs_selftest.py   # applies 21 mutations, each must be caught
 ```
 
 That self-test earned its place. It found two checks that were passing vacuously — one

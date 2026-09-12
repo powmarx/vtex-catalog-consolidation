@@ -1,6 +1,6 @@
 # Tasks
 
-**Status: complete.** All nine tasks are done, 185 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
+**Status: complete.** All nine tasks are done, 231 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
 
 Two things landed differently from this plan. `reporting.py` arrived with task 7 rather than task 9, because the CLI needed rendering either way. And task 5 grew an error-translation layer that was not planned: a boundary test caught `cli.py` importing `sqlite3`, and fixing it properly rather than widening the allowlist closed a real gap — `DS3` justified `ON CONFLICT DO NOTHING` on the grounds that a `NOT NULL` violation stays reportable, but nothing was catching it, so it would have rolled back the whole run.
 
@@ -132,7 +132,7 @@ as the implementation lands.
 Two points where they interact with the tasks above:
 
 - **Task 2** makes `verify_docs.py` import `catalog_consolidation.normalize` instead of its
-  fallback copy of the `D1` rule. From that point the 278 checks also act as a regression
+  fallback copy of the `D1` rule. From that point the documentation checks also act as a regression
   test on the real match key — if the normalizer drifts, the documented counts stop
   reproducing. The script prints which implementation it used, so the switchover is visible.
 - **Task 8** duplicates the acceptance numbers as unit tests. That is deliberate: the script
