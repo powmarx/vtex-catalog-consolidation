@@ -1,6 +1,6 @@
 # Tasks
 
-**Status: complete.** All nine tasks are done, 231 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
+**Status: complete.** All nine tasks are done, 233 tests pass, and the acceptance table in [`DECISIONS.md`](DECISIONS.md) reproduces exactly.
 
 Two things landed differently from this plan. `reporting.py` arrived with task 7 rather than task 9, because the CLI needed rendering either way. And task 5 grew an error-translation layer that was not planned: a boundary test caught `cli.py` importing `sqlite3`, and fixing it properly rather than widening the allowlist closed a real gap — `DS3` justified `ON CONFLICT DO NOTHING` on the grounds that a `NOT NULL` violation stays reportable, but nothing was catching it, so it would have rolled back the whole run.
 

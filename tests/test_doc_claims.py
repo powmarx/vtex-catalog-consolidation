@@ -86,6 +86,25 @@ class TestDocumentedCommandsExist(unittest.TestCase):
         self.assertIn("python -m catalog_consolidation", self.readme)
         self.assertTrue((ROOT / "src" / "catalog_consolidation" / "__main__.py").exists())
 
+    def test_the_documented_console_script_is_the_declared_one(self):
+        """pyproject declares an entry point; the README must name the same one.
+
+        It went undocumented until a pre-submission check found it, which meant a
+        reviewer reading pyproject.toml would have found a command the README never
+        mentioned.
+        """
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        declared = re.search(r"^([\w-]+) = \"catalog_consolidation\.cli:main\"", pyproject, re.M)
+        self.assertIsNotNone(declared, "pyproject no longer declares a console script")
+        name = declared.group(1)
+        self.assertIn(f"{name} --database", self.readme, f"README does not show the {name!r} entry point")
+
+    def test_the_documented_python_floor_matches_pyproject(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        declared = re.search(r'requires-python = ">=(\d+\.\d+)"', pyproject)
+        self.assertIsNotNone(declared)
+        self.assertIn(f"Python {declared.group(1)} or newer", self.readme)
+
     def test_referenced_data_files_exist(self):
         for name in re.findall(r"(data/[\w.]+)", self.readme):
             if ".local." in name:

@@ -31,7 +31,15 @@ The catalog is mutated in place, and `data/catalog.db` is the pristine artifact 
 
 ```
 copy data\catalog.db data\catalog.local.db
+set PYTHONPATH=src
 python -m catalog_consolidation --database data/catalog.local.db --input data/ProductEntry.json
+```
+
+Or install it, which avoids setting `PYTHONPATH` and provides a `catalog-consolidation` entry point:
+
+```
+pip install -e .
+catalog-consolidation --database data/catalog.local.db --input data/ProductEntry.json
 ```
 
 `--database` is deliberately required with no default, so no invocation can mutate the baseline by forgetting an argument.
@@ -75,7 +83,7 @@ set PYTHONPATH=src
 python -m unittest discover -s tests
 ```
 
-231 tests, in two kinds.
+233 tests, in two kinds.
 
 `tests/test_acceptance.py` asserts the expected-outcome table from `docs/DECISIONS.md`, measured before any code existed — a contract, not a description of what the code happens to do.
 
